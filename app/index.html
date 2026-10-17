@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Yuki · 一起看剧情</title></head>
+<body>
+  <main id="app">
+    <header class="window-bar">
+      <div class="drag-area" title="拖动小窗口"><span class="status-dot"></span><span>Yuki</span></div>
+      <div class="window-actions"><button id="minimize" aria-label="最小化" title="最小化">−</button><button id="close" aria-label="关闭窗口" title="关闭窗口">×</button></div>
+    </header>
+    <div id="stage" aria-label="Yuki 模型"><canvas id="avatar"></canvas><p id="model-status" role="status">Yuki 正在过来……</p></div>
+    <section class="dialogue" aria-label="Yuki 对话框">
+      <div class="nameplate"><span class="name-gem">◇</span><span id="speaker">Yuki</span><i></i></div>
+      <div class="dialogue-tools"><button id="history-toggle" aria-expanded="false" title="查看本次对话">回想</button><button id="new-chat" title="开始新的对话">新篇</button></div>
+      <div id="line" role="log" aria-live="polite" tabindex="0"><span id="reply">玩到哪一段了？一起聊聊刚才那段剧情吧。</span><span id="advance" aria-hidden="true">▾</span></div>
+      <p id="hint" role="status">一起看剧情，慢慢聊 · 默认不剧透</p>
+      <form id="composer"><label class="sr-only" for="message">对 Yuki 说</label><textarea id="message" rows="1" maxlength="4000" placeholder="聊聊剧情，或贴一段让你在意的台词……"></textarea><button id="send" type="submit" aria-label="发送消息">➤</button></form>
+      <div class="frame-mark mark-tl"></div><div class="frame-mark mark-br"></div>
+    </section>
+    <section id="memories" class="memories" hidden aria-label="本次对话回想"><header><span>回 想</span><button id="history-close" aria-label="关闭回想">×</button></header><div id="history-lines"></div></section>
+  </main>
+  <script src="/vendor/live2d-core/live2dcubismcore.js"></script>
+  <script type="module" src="/src/main.ts"></script>
+</body></html>

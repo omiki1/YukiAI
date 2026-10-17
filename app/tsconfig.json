@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2020", "module": "ESNext", "moduleResolution": "Bundler",
+    "lib": ["ES2020", "DOM"], "strict": false, "skipLibCheck": true,
+    "noEmit": true, "types": [], "useDefineForClassFields": true
+  },
+  "include": ["src/**/*.ts", "vendor/live2d/Core/*.d.ts"]
+}

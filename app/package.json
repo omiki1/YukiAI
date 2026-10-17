@@ -1,0 +1,7 @@
+{
+  "name": "yuki-window",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {"build": "vite build", "check": "tsc --noEmit"},
+  "devDependencies": {"vite": "5.4.18", "typescript": "5.5.4", "playwright-core": "1.58.2"}
+}
