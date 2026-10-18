@@ -11,7 +11,7 @@ async function bytes(url:string){const r=await fetch(url);if(!r.ok)throw new Err
 
 export class Avatar extends CubismUserModel{
   canvas:HTMLCanvasElement;gl:WebGLRenderingContext;expressions=new Map<string,ACubismMotion>();
-  expression='neutral';time=0;ready=false;private previous=0;private frame=0;private textures:WebGLTexture[]=[];
+  expression='neutral';time=0;ready=false;scale=.85;onLayout?:()=>void;private drawnScale=0;private previous=0;private frame=0;private textures:WebGLTexture[]=[];
   constructor(canvas:HTMLCanvasElement){super();this.canvas=canvas;}
   async init(){
     this.gl=(this.canvas.getContext('webgl2',{alpha:true,premultipliedAlpha:true,antialias:true,preserveDrawingBuffer:true})||this.canvas.getContext('webgl',{alpha:true,premultipliedAlpha:true,antialias:true,preserveDrawingBuffer:true})) as WebGLRenderingContext;
@@ -32,6 +32,7 @@ export class Avatar extends CubismUserModel{
     this._model.saveParameters();this.ready=true;this.setExpression('neutral');this.frame=requestAnimationFrame(t=>this.drawFrame(t));
   }
   setExpression(name:string){const exp=this.expressions.get(name);if(!exp)return;this.expression=name;this._expressionManager.startMotionPriority(exp,false,3);}
+  setScale(value:number){if(Number.isFinite(value))this.scale=Math.min(1.1,Math.max(.6,value));}
   private set(id:string,value:number){this._model.setParameterValueById(CubismFramework.getIdManager().getId(id),value);}
   private drawFrame(now:number){
     if(!this.ready)return;const dt=this.previous?Math.min((now-this.previous)/1000,.05):0;this.previous=now;this.time+=dt;
@@ -40,12 +41,14 @@ export class Avatar extends CubismUserModel{
     // Final pose guard. No mouse tracking, breathing sway or speaking/audio driver.
     for(const id of locked)this.set(id,0);
     this._model.update();const gl=this.gl,dpr=Math.min(devicePixelRatio||1,2),w=Math.round(this.canvas.clientWidth*dpr),h=Math.round(this.canvas.clientHeight*dpr);
+    const layoutChanged=w!==this.canvas.width||h!==this.canvas.height||this.drawnScale!==this.scale;
     if(w!==this.canvas.width||h!==this.canvas.height){this.canvas.width=w;this.canvas.height=h;}
     gl.viewport(0,0,w,h);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-    const projection=new CubismMatrix44();projection.scale(h/w*.95,.95);
+    const projection=new CubismMatrix44();projection.scale(h/w*.95*this.scale,.95*this.scale);projection.translateY(-.95*(1-this.scale));
     this.getRenderer().setMvpMatrix(projection);this.getRenderer().setRenderState(null,[0,0,w,h]);this.getRenderer().drawModel();
     this.frame=requestAnimationFrame(t=>this.drawFrame(t));
+    if(layoutChanged){this.drawnScale=this.scale;this.onLayout?.();}
   }
-  snapshot(){const c=this._model?.getModel();return c?{expression:this.expression,parameters:Object.fromEntries(c.parameters.ids.map((id,i)=>[id,c.parameters.values[i]])),drawables:c.drawables.ids.length}:null;}
+  snapshot(){const c=this._model?.getModel();return c?{expression:this.expression,scale:this.scale,parameters:Object.fromEntries(c.parameters.ids.map((id,i)=>[id,c.parameters.values[i]])),drawables:c.drawables.ids.length}:null;}
   dispose(){cancelAnimationFrame(this.frame);this.ready=false;for(const t of this.textures)this.gl.deleteTexture(t);this.release();}
 }

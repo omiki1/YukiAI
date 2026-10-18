@@ -7,7 +7,7 @@ import subprocess
 ROOT=Path(__file__).resolve().parents[1]
 ROOT_FILES={'.gitignore','.env.example','README.md','requirements.txt','start_yuki.py','start_yuki.cmd','rebuild_frontend.cmd'}
 APP_FILES={'app/'+x for x in ['package.json','package-lock.json','tsconfig.json','vite.config.ts','index.html']}
-SCRIPT_FILES={'scripts/'+x for x in ['settings.py','yuki_chat.py','yuki_history.py','yuki_server.py','yuki_window.py','test_window_backend.py','verify_window.cjs','audit_upload.py']}
+SCRIPT_FILES={'scripts/'+x for x in ['settings.py','yuki_chat.py','yuki_history.py','yuki_server.py','yuki_window.py','yuki_config.py','yuki_speech.py','yuki_story.py','test_story_memory.py','verify_story.cjs','test_window_backend.py','test_window_settings.py','verify_window.cjs','audit_upload.py']}
 CORE_FILES={'app/vendor/live2d/Core/'+x for x in ['live2dcubismcore.d.ts','LICENSE.md','RedistributableFiles.txt']}
 OTHER_FILES={'docs/PUBLISHING.md','third_party/README.md','third_party/Open-LLM-VTuber-MIT.txt'}
 EXTENSIONS={'.pem','.key','.p12','.pfx','.moc3','.png','.jpg','.jpeg','.webp','.kra','.psd','.ora','.zip','.wav','.mp3','.mp4','.onnx','.safetensors','.pt','.pth','.ckpt','.gguf'}
@@ -33,6 +33,16 @@ def main():
             if re.search(r'KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL',key,re.I):
                 value=value.strip().strip('"\'')
                 if len(value)>=8:secrets.append(value.encode())
+    local_config=ROOT/'.yuki.local.json'
+    if local_config.exists():
+        def collect(value):
+            if isinstance(value,dict):
+                for key,item in value.items():
+                    if key=='api_key' and isinstance(item,str) and len(item)>=8:secrets.append(item.encode())
+                    else:collect(item)
+            elif isinstance(value,list):
+                for item in value:collect(item)
+        collect(json.loads(local_config.read_text(encoding='utf-8')))
     entries=[]
     for record in git('ls-files','--stage','-z').split(b'\0'):
         if not record:continue

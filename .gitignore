@@ -34,6 +34,12 @@
 !/scripts/yuki_history.py
 !/scripts/yuki_server.py
 !/scripts/yuki_window.py
+!/scripts/yuki_config.py
+!/scripts/yuki_speech.py
+!/scripts/yuki_story.py
+!/scripts/test_story_memory.py
+!/scripts/verify_story.cjs
+!/scripts/test_window_settings.py
 !/scripts/test_window_backend.py
 !/scripts/verify_window.cjs
 !/scripts/audit_upload.py
@@ -48,6 +54,7 @@
 
 # Credentials, local state, compiled output and model/media assets stay local.
 .env
+.yuki.local.json*
 .env.*
 !/.env.example
 **/node_modules/

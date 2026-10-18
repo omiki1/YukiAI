@@ -1,4 +1,4 @@
-"""Transparent native Qt window around our local, text-only interface."""
+"""Transparent native Qt window around our local interface."""
 from pathlib import Path
 import os
 import sys
@@ -45,7 +45,7 @@ def open_window(url):
 
     app=QApplication(sys.argv[:1]);app.setApplicationName('Yuki 一起看剧情')
     window=QWidget();window.setWindowTitle('Yuki · 一起看剧情');window.setWindowFlags(Qt.Window|Qt.FramelessWindowHint)
-    window.setAttribute(Qt.WA_TranslucentBackground);window.resize(460,640);window.setMinimumSize(380,540)
+    window.setAttribute(Qt.WA_TranslucentBackground);window.resize(320,460);window.setMinimumSize(280,380)
     view=QWebEngineView(window);view.setAttribute(Qt.WA_TranslucentBackground);view.setStyleSheet('background:transparent')
     profile=QWebEngineProfile('YukiWindow',window)
     profile.setPersistentStoragePath(str(ROOT/'.cache/yuki-window/profile'))
@@ -54,10 +54,11 @@ def open_window(url):
     profile.setHttpCacheType(QWebEngineProfile.MemoryHttpCache)
     interceptor=LocalRequests(profile);profile.setUrlRequestInterceptor(interceptor)
     page=LocalPage(profile,view);page.setBackgroundColor(QColor(Qt.transparent));view.setPage(page)
-    page.setAudioMuted(True)
+    page.setAudioMuted(False)
     page.featurePermissionRequested.connect(lambda origin,feature:page.setFeaturePermission(origin,feature,QWebEnginePage.PermissionDeniedByUser))
     page.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls,False)
     page.settings().setAttribute(QWebEngineSettings.WebGLEnabled,True)
+    page.settings().setAttribute(QWebEngineSettings.PlaybackRequiresUserGesture,False)
     view.setContextMenuPolicy(Qt.NoContextMenu)
     channel=QWebChannel(page);host=Host(channel);channel.registerObject('windowHost',host);page.setWebChannel(channel)
     layout=QVBoxLayout(window);layout.setContentsMargins(0,0,0,0);layout.addWidget(view)

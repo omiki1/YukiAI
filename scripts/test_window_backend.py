@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from scripts.yuki_server import create_app
 from scripts.yuki_chat import TextChat
+from scripts.yuki_config import ConfigStore
 
 class Fixture:
     def __init__(self):self.calls=[]
@@ -15,7 +16,8 @@ class Fixture:
 class WindowBackendTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.fixture=Fixture()
-        self.app=create_app(self.fixture,self.temp.name);self.client=TestClient(self.app)
+        self.config=ConfigStore(Path(self.temp.name)/'config.json',env={})
+        self.app=create_app(self.fixture,self.temp.name,config=self.config);self.client=TestClient(self.app)
     def tearDown(self):self.client.close();self.temp.cleanup()
     def test_text_exchange_and_restart_history(self):
         uid=self.client.post('/api/sessions',json={}).json()['session_id']
@@ -25,7 +27,7 @@ class WindowBackendTests(unittest.TestCase):
         self.assertFalse(any(k in result.json() for k in ['audio','speech_text']))
         messages=self.client.get('/api/sessions/'+uid).json()['messages']
         self.assertEqual([m['role'] for m in messages],['human','ai'])
-        restored=TestClient(create_app(history_directory=self.temp.name))
+        restored=TestClient(create_app(history_directory=self.temp.name,config=self.config))
         self.assertEqual(restored.get('/api/sessions/'+uid).json()['messages'],messages)
         restored.close()
         self.client.post('/api/chat',json={'text':'接着聊','session_id':uid})

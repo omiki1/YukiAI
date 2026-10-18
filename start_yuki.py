@@ -12,27 +12,24 @@ os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 sys.dont_write_bytecode = True
 
 def main():
+    # pythonw has no console streams; uvicorn's logger still needs a file-like object.
+    for stream_name in ('stdout', 'stderr'):
+        if getattr(sys, stream_name) is None:
+            setattr(sys, stream_name, open(os.devnull, 'w', encoding='utf-8'))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=['auto', 'preview', 'chat'], default='auto')
     parser.add_argument('--port', type=int, default=12393)
     parser.add_argument('--headless', action='store_true', help='只启动本机预览服务，不打开桌面窗口')
     args = parser.parse_args()
     os.chdir(ROOT)
-    from scripts.settings import load_local_settings, llm_ready
+    from scripts.settings import load_local_settings
     load_local_settings()
-    if args.mode == 'auto':
-        args.mode = 'chat' if llm_ready() else 'preview'
     if not (ROOT / 'app/dist/index.html').is_file():
-        raise SystemExit('前端尚未构建。请参阅 README_YUKI.md。')
+        raise SystemExit('前端尚未构建。请参阅 README.md。')
     import uvicorn
     from scripts.yuki_server import create_app
-    chat=None
-    if args.mode == 'chat':
-        if not llm_ready():raise SystemExit('文字 API 配置不全，请使用 --mode preview。')
-        from scripts.yuki_chat import TextChat
-        chat=TextChat()
-    app=create_app(chat)
-    print(f'Yuki 小窗：http://127.0.0.1:{args.port}（模式：{args.mode}，仅文字）',flush=True)
+    app=create_app(allow_cloud=args.mode!='preview')
+    print(f'Yuki 小窗：http://127.0.0.1:{args.port}（模式：{args.mode}，接口可在设置中配置）',flush=True)
     if args.headless:
         uvicorn.run(app,host='127.0.0.1',port=args.port,log_level='warning')
         return

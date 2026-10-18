@@ -3,20 +3,59 @@
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Yuki · 一起看剧情</title></head>
 <body>
   <main id="app">
-    <header class="window-bar">
-      <div class="drag-area" title="拖动小窗口"><span class="status-dot"></span><span>Yuki</span></div>
-      <div class="window-actions"><button id="minimize" aria-label="最小化" title="最小化">−</button><button id="close" aria-label="关闭窗口" title="关闭窗口">×</button></div>
+    <header class="window-bar" aria-label="模型操作栏" aria-hidden="true">
+      <div class="drag-area" title="拖动小窗口" tabindex="0" aria-label="Yuki 窗口操作，可拖动此处移动"><span class="status-dot"></span><span>Yuki</span><span id="reading-badge"></span></div>
+      <div class="window-actions"><button id="story-toggle" aria-label="剧情记录" title="剧情记录" aria-expanded="false">▤</button><button id="settings-toggle" aria-label="打开设置" title="设置" aria-expanded="false">⚙</button><button id="minimize" aria-label="最小化" title="最小化">−</button><button id="close" aria-label="关闭窗口" title="关闭窗口">×</button></div>
     </header>
     <div id="stage" aria-label="Yuki 模型"><canvas id="avatar"></canvas><p id="model-status" role="status">Yuki 正在过来……</p></div>
-    <section class="dialogue" aria-label="Yuki 对话框">
-      <div class="nameplate"><span class="name-gem">◇</span><span id="speaker">Yuki</span><i></i></div>
-      <div class="dialogue-tools"><button id="history-toggle" aria-expanded="false" title="查看本次对话">回想</button><button id="new-chat" title="开始新的对话">新篇</button></div>
-      <div id="line" role="log" aria-live="polite" tabindex="0"><span id="reply">玩到哪一段了？一起聊聊刚才那段剧情吧。</span><span id="advance" aria-hidden="true">▾</span></div>
-      <p id="hint" role="status">一起看剧情，慢慢聊 · 默认不剧透</p>
-      <form id="composer"><label class="sr-only" for="message">对 Yuki 说</label><textarea id="message" rows="1" maxlength="4000" placeholder="聊聊剧情，或贴一段让你在意的台词……"></textarea><button id="send" type="submit" aria-label="发送消息">➤</button></form>
-      <div class="frame-mark mark-tl"></div><div class="frame-mark mark-br"></div>
+    <section class="dialogue" aria-label="Yuki 的最新消息">
+      <div id="line" role="log" aria-live="polite" tabindex="0" title="点击显示完整消息"><span id="reply">读到哪儿了？我陪你一起看。</span><span id="advance" hidden aria-hidden="true">▾</span></div>
+      <p id="hint" role="status"></p>
+      <div class="bubble-actions"><button id="voice-stop" hidden title="停止朗读">停声</button><button id="evidence-toggle" hidden title="查看本次回复引用的原文">依据</button><button id="reply-expand" hidden aria-expanded="false" aria-controls="line">展开</button><button id="chat-toggle" aria-expanded="false" aria-controls="composer">聊聊</button><button id="more-toggle" aria-expanded="false" aria-controls="dialogue-tools" aria-label="更多聊天操作" title="更多">···</button><div id="dialogue-tools" class="dialogue-tools" hidden><button id="history-toggle" aria-expanded="false" title="查看本次对话">回想</button><button id="new-chat" title="开始新的对话">新篇</button><button id="dialogue-fold" title="收起气泡">收起气泡</button></div></div>
+      <form id="composer" hidden><label class="sr-only" for="message">对 Yuki 说</label><textarea id="message" rows="1" maxlength="4000" placeholder="和 Yuki 说……"></textarea><button id="send" type="submit" aria-label="发送消息">➤</button></form>
     </section>
+    <button id="dialogue-restore" hidden aria-label="展开对话框">◇ Yuki · 聊两句</button>
     <section id="memories" class="memories" hidden aria-label="本次对话回想"><header><span>回 想</span><button id="history-close" aria-label="关闭回想">×</button></header><div id="history-lines"></div></section>
+    <section id="story-panel" hidden role="dialog" aria-modal="true" aria-labelledby="story-title">
+      <header class="story-header"><div><h1 id="story-title">一起读到这里</h1><p id="story-position">先建立一篇共读</p></div><button id="story-close" aria-label="关闭剧情记录">×</button></header>
+      <div class="story-picker"><label class="sr-only" for="story-run">当前共读</label><select id="story-run"><option value="">普通聊天</option></select><button id="story-new-toggle" type="button" aria-expanded="false" aria-controls="story-new-form">新共读</button></div>
+      <nav class="story-tabs" aria-label="剧情记录分类"><button type="button" data-story-tab="events" aria-pressed="true">原文</button><button type="button" data-story-tab="import" aria-pressed="false">收录</button><button type="button" data-story-tab="bookmarks" aria-pressed="false">书签与路线</button></nav>
+      <div class="story-content">
+        <form id="story-new-form" data-story-pane="new" hidden><label for="story-game-title">游戏名称</label><input id="story-game-title" type="text" maxlength="100" placeholder="你正在玩的中文版游戏" required><label for="story-run-name">这篇共读的名字</label><input id="story-run-name" type="text" maxlength="60" placeholder="初见共读"><button type="submit">建立共读</button></form>
+        <div data-story-pane="events"><div id="story-evidence" hidden><h2>本次回复的原文依据</h2><p class="story-note">这是已读原文；角色的说辞仍需结合剧情判断。</p><div id="story-evidence-lines"></div><button id="story-evidence-back" type="button">返回全部已读原文</button></div><div id="story-all-events"><p class="story-note">仅显示当前路线、当前进度内的原文。可点“读到这里”校准进度。</p><button id="story-before" type="button" hidden>更早的原文</button><div id="story-events"></div><button id="story-next" type="button" hidden>我已重读下一句，前进一步</button></div></div>
+        <div data-story-pane="import" hidden><form id="story-import-form"><label for="story-text">粘贴已经读过的中文剧情</label><textarea id="story-text" maxlength="60000" rows="6" placeholder="美咲：昨晚我没有离开宿舍。&#10;旁白：她避开了你的目光。" required></textarea><p class="story-note">每行作为一段原文，空行跳过。不要粘贴尚未阅读的整部脚本。</p><label for="story-kind">这段内容是</label><select id="story-kind"><option value="auto">自动辨认对白、旁白和选项</option><option value="dialogue">人物对白</option><option value="narration">旁白</option><option value="choice">选项</option></select><div id="story-speaker-field" hidden><label for="story-speaker">说话者（可留空）</label><input id="story-speaker" type="text" maxlength="30"></div><label class="story-check"><input id="story-confirm" type="checkbox" required>这些内容我已经读过</label><button id="story-import-submit" type="submit">收录并更新进度</button><p class="story-note">在回退位置收录新内容，会另存为分支，原路线继续保留。</p></form></div>
+        <div data-story-pane="bookmarks" hidden><form id="story-bookmark-form"><label for="story-bookmark-name">在当前进度留个书签</label><div class="story-inline"><input id="story-bookmark-name" type="text" maxlength="60" placeholder="例如：旧校舍前的选项"><button type="submit">留书签</button></div></form><div id="story-bookmarks"></div><hr><form id="story-fork-form"><label for="story-branch-name">从当前位置开启另一条路线</label><div class="story-inline"><input id="story-branch-name" type="text" maxlength="60" placeholder="新路线的名字（可留空）"><button type="submit">分支</button></div></form><label for="story-branch">切换路线（回到该路线已记录的末尾）</label><select id="story-branch"></select><p class="story-note">读档后请在这里恢复书签或校准进度。Yuki 的讨论会随当前路线一起切换。</p></div>
+      </div>
+      <footer class="story-footer"><p id="story-status" role="status">原文只保存在本机，收录不会调用模型。</p></footer>
+    </section>
+    <section id="settings" class="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header class="settings-header"><div><h1 id="settings-title">小窗设置</h1><p>接口与密钥只保存在这台电脑</p></div><button id="settings-close" aria-label="关闭设置">×</button></header>
+      <nav class="settings-tabs" aria-label="设置分类"><button type="button" data-tab="appearance" aria-pressed="true">外观</button><button type="button" data-tab="llm" aria-pressed="false">聊天接口</button><button type="button" data-tab="voice" aria-pressed="false">语音接口</button></nav>
+      <form id="settings-form" autocomplete="off">
+        <div class="settings-body">
+          <div data-pane="appearance"><label for="avatar-scale">角色大小 <output id="scale-value">85%</output></label><input id="avatar-scale" type="range" min="60" max="110" step="1" value="85"><p class="settings-note">拖动即可预览，保存后下次打开也会记住。</p><button id="scale-reset" class="text-button" type="button">恢复推荐大小</button></div>
+          <div data-pane="llm" hidden>
+            <p class="settings-note">支持 OpenAI 兼容的聊天服务，保存后立即生效。</p>
+            <label for="llm-url">接口地址（Base URL）</label><input id="llm-url" type="url" placeholder="https://你的服务地址/v1" maxlength="500" spellcheck="false">
+            <label for="llm-key">API Key</label><input id="llm-key" type="password" autocomplete="new-password" placeholder="填写密钥" maxlength="2000"><label class="check"><input id="llm-clear" type="checkbox">清除已保存的聊天密钥</label>
+            <label for="llm-model">模型名称</label><input id="llm-model" type="text" placeholder="控制台显示的完整模型 ID" maxlength="200" spellcheck="false">
+            <label class="check"><input id="llm-json" type="checkbox" checked>请求 JSON 格式回复</label><p class="settings-note">服务不支持 JSON 格式选项时可取消，Yuki 仍会要求模型按约定回复。</p>
+            <button id="llm-test" class="secondary" type="button">保存并测试聊天</button><p class="settings-note">测试会向填写的服务发送一句问候。</p>
+          </div>
+          <div data-pane="voice" hidden>
+            <label class="check"><input id="voice-enabled" type="checkbox">自动朗读 Yuki 的回复</label><p class="settings-note">默认关闭；只朗读文字，不使用麦克风。</p>
+            <label for="voice-provider">语音服务</label><select id="voice-provider"><option value="fish">Fish Audio</option><option value="openai">OpenAI 兼容语音</option></select>
+            <label id="voice-url-label" for="voice-url">完整合成地址</label><input id="voice-url" type="url" maxlength="500" spellcheck="false">
+            <label for="voice-key">API Key</label><input id="voice-key" type="password" autocomplete="new-password" placeholder="填写语音服务密钥" maxlength="2000"><label class="check"><input id="voice-clear" type="checkbox">清除当前语音服务的密钥</label>
+            <label for="voice-model">语音模型</label><input id="voice-model" type="text" maxlength="200" spellcheck="false" hidden><select id="fish-model"><option value="s2.1-pro-free">s2.1-pro-free（免费档）</option><option value="s2.1-pro">s2.1-pro（付费）</option><option value="s2-pro">s2-pro（付费）</option><option value="s1">s1（付费）</option><option value="drama-3">drama-3（付费）</option></select>
+            <label id="voice-id-label" for="voice-id">音色 ID（留空使用服务默认音色）</label><input id="voice-id" type="text" maxlength="200" spellcheck="false">
+            <label for="voice-speed">语速</label><input id="voice-speed" type="number" min="0.5" max="2" step="0.1" value="1">
+            <button id="voice-test" class="secondary" type="button">保存并试听</button><button id="settings-voice-stop" class="secondary" type="button" hidden>停止试听</button><p class="settings-note">试听会调用所选语音服务，按该服务规则计费。</p>
+          </div>
+        </div>
+        <footer class="settings-footer"><p id="settings-status" role="status">保存配置不会自动调用接口。</p><button id="settings-save" type="submit">保存设置</button></footer>
+      </form>
+    </section>
   </main>
   <script src="/vendor/live2d-core/live2dcubismcore.js"></script>
   <script type="module" src="/src/main.ts"></script>
