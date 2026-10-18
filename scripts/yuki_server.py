@@ -15,15 +15,17 @@ from .yuki_config import ConfigStore,Configuration,ready
 from .yuki_chat import TextChat
 from .yuki_speech import SpeechClient
 from .yuki_story import StoryStore,StoryConflict
+from .yuki_capture import CaptureService
 
 ROOT=Path(__file__).resolve().parents[1]
 
-def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,speech=None,story=None):
+def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,speech=None,story=None,capture_runtime=None):
     config=config or ConfigStore()
 
     @asynccontextmanager
     async def lifespan(app):
         yield
+        await app.state.capture.detach()
         if isinstance(app.state.chat,TextChat):await app.state.chat.client.close()
 
     app=FastAPI(title='Yuki 小窗',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
@@ -39,6 +41,14 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     app.state.active_speech_task=None
     lock=asyncio.Lock()
     speech_lock=asyncio.Lock()
+
+    def cancel_reading_tasks():
+        for task in (app.state.active_chat_task,app.state.active_speech_task):
+            if task and not task.done():task.cancel()
+
+    capture=CaptureService(story,capture_runtime,cancel_reading_tasks)
+    app.state.capture=capture
+    capture_lock=asyncio.Lock()
 
     def configure_clients():
         data=config.data
@@ -57,6 +67,7 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
         if request.url.path.startswith('/api/story'):
             message='请检查填写内容，并确认收录的是已读文本；单次最多60000字、200行。'
         elif request.url.path=='/api/chat':message='请输入1～4000字，并刷新当前阅读进度后再试。'
+        elif request.url.path.startswith('/api/capture'):message='请刷新取词面板，选择游戏与正文来源，并确认只记录已读台词。'
         return JSONResponse(status_code=422,content={'detail':message})
 
     @app.middleware('http')
@@ -182,9 +193,68 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
         except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
         except ValueError as exc:raise HTTPException(400,str(exc)) from None
         if story.epoch()!=old_epoch:
-            for task in (app.state.active_chat_task,app.state.active_speech_task):
-                if task and not task.done():task.cancel()
+            cancel_reading_tasks()
+            capture.check_scope()
         return story.view()
+
+    class CaptureSession(BaseModel):
+        session_id:str=Field(min_length=1,max_length=64)
+
+    class CaptureAttach(BaseModel):
+        pid:int=Field(gt=0,le=4294967295)
+
+    class CaptureSelect(CaptureSession):
+        thread_id:str=Field(min_length=1,max_length=160)
+        kind:Literal['auto','dialogue','narration','choice']='auto'
+        speaker:str=Field(default='',max_length=30)
+
+    class CaptureRecord(CaptureSession):
+        epoch:int=Field(ge=0)
+        run_id:str=Field(min_length=1,max_length=100)
+        confirmed_read:Literal[True]
+
+    class CaptureHook(CaptureSession):
+        code:str=Field(min_length=2,max_length=440)
+
+    def capture_call(function,*args):
+        try:return function(*args)
+        except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
+        except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+    @app.get('/api/capture')
+    async def capture_status():return capture.status()
+
+    @app.get('/api/capture/processes')
+    async def capture_processes():return {'processes':await asyncio.to_thread(capture.runtime.processes)}
+
+    @app.post('/api/capture/attach')
+    async def capture_attach(data:CaptureAttach):
+        async with capture_lock:
+            try:return await capture.attach(data.pid)
+            except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+    @app.post('/api/capture/select')
+    async def capture_select(data:CaptureSelect):
+        return capture_call(capture.select,data.session_id,data.thread_id,data.kind,data.speaker)
+
+    @app.post('/api/capture/record')
+    async def capture_record(data:CaptureRecord):
+        return capture_call(capture.start_recording,data.session_id,data.epoch,data.run_id)
+
+    @app.post('/api/capture/pause')
+    async def capture_pause(data:CaptureSession):
+        capture_call(capture.require_session,data.session_id)
+        capture.pause()
+        return capture.status()
+
+    @app.post('/api/capture/detach')
+    async def capture_detach(data:CaptureSession):
+        async with capture_lock:
+            capture_call(capture.require_session,data.session_id)
+            return await capture.detach()
+
+    @app.post('/api/capture/hook')
+    async def capture_hook(data:CaptureHook):return capture_call(capture.hook,data.session_id,data.code)
 
     @app.get('/api/story')
     async def reading_state(before:int|None=Query(default=None,ge=1)):return story.view(before)

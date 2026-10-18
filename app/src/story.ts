@@ -1,10 +1,12 @@
 import {api} from './api';
+import {CapturePanel} from './capture';
 const $=(id:string)=>document.getElementById(id) as HTMLInputElement;
 
 export type StoryEvidence={id:number;position:number;kind:string;speaker:string;text:string;raw_text:string};
 export class StoryPanel{
- state:any=null;private busy=false;private generation=0;private importSignature='';private importId='';private timer:number;
+ state:any=null;private busy=false;private generation=0;private importSignature='';private importId='';private timer:number;private capture:CapturePanel;
  constructor(private changed:(state:any,boundary:boolean)=>void,private opening:()=>void){
+  this.capture=new CapturePanel(()=>({epoch:this.epoch,active:this.active}),()=>this.load());
   $('story-toggle').onclick=()=>this.open();$('story-close').onclick=()=>this.close();
   $('story-run').onchange=()=>this.action('activate',{run_id:$('story-run').value||null},'已切换共读。');
   $('story-new-toggle').onclick=()=>{const open=$('story-new-form').hidden;this.tab(open?'new':'events');if(open)$('story-game-title').focus();};
@@ -33,9 +35,9 @@ export class StoryPanel{
  }
  open(){this.opening();$('story-panel').hidden=false;$('story-toggle').setAttribute('aria-expanded','true');$('story-close').focus();this.load().catch(e=>this.message(e.message,true));}
  close(){if(this.busy||$('story-panel').hidden)return;$('story-panel').hidden=true;$('story-toggle').setAttribute('aria-expanded','false');$('story-toggle').focus();}
- private tab(name:string){document.querySelectorAll<HTMLElement>('[data-story-pane]').forEach(pane=>pane.hidden=pane.dataset.storyPane!==name);document.querySelectorAll<HTMLElement>('[data-story-tab]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.storyTab===name)));$('story-new-toggle').setAttribute('aria-expanded',String(name==='new'));}
+ private tab(name:string){document.querySelectorAll<HTMLElement>('[data-story-pane]').forEach(pane=>pane.hidden=pane.dataset.storyPane!==name);document.querySelectorAll<HTMLElement>('[data-story-tab]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.storyTab===name)));$('story-new-toggle').setAttribute('aria-expanded',String(name==='new'));if(name==='capture')this.capture.open();}
  private message(text:string,error=false){$('story-status').textContent=text;$('story-status').title=text;$('story-status').classList.toggle('error',error);}
- private setBusy(value:boolean){this.busy=value;$('story-panel').querySelectorAll<HTMLInputElement>('button,input,select,textarea').forEach(el=>el.disabled=value);$('settings-toggle').disabled=value;}
+ private setBusy(value:boolean){this.busy=value;$('story-panel').querySelectorAll<HTMLInputElement>('button,input,select,textarea').forEach(el=>el.disabled=value);$('settings-toggle').disabled=value;this.capture.setBlocked(value);}
  private apply(data:any){
   const boundary=this.state!==null&&this.state.epoch!==data.epoch;this.state=data;const active=data.active;
   const options=[{id:'',label:'普通聊天（不使用剧情记录）'},...data.runs.map(run=>({id:run.id,label:run.title+' · '+run.name}))];
@@ -43,7 +45,7 @@ export class StoryPanel{
   $('story-position').textContent=active?active.title+' · '+active.branch_name+' · 已读 '+active.position+' 句':'先建立一篇共读';
   $('story-position').title=$('story-position').textContent;
   if(boundary){this.allEvents();$('story-confirm').checked=false;this.message('阅读位置已切换，旧进度的回复已收起。');}
-  this.renderEvents();this.renderBookmarks();this.changed(data,boundary);
+  this.renderEvents();this.renderBookmarks();this.capture.contextChanged();this.changed(data,boundary);
  }
  private card(event:StoryEvidence,navigate=false){
   const card=document.createElement('article');card.className='story-event';card.dataset.eventId=String(event.id);
@@ -81,5 +83,5 @@ export class StoryPanel{
  showEvidence(events:StoryEvidence[]){this.opening();$('story-panel').hidden=false;$('story-toggle').setAttribute('aria-expanded','true');this.tab('events');$('story-evidence').hidden=false;$('story-all-events').hidden=true;
   const root=$('story-evidence-lines');root.replaceChildren();for(const event of events)root.append(this.card(event));$('story-close').focus();}
  private allEvents(){$('story-evidence').hidden=true;$('story-all-events').hidden=false;}
- dispose(){clearInterval(this.timer);}
+ dispose(){clearInterval(this.timer);this.capture.dispose();}
 }

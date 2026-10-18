@@ -37,6 +37,11 @@
 !/scripts/yuki_config.py
 !/scripts/yuki_speech.py
 !/scripts/yuki_story.py
+!/scripts/yuki_capture.py
+!/scripts/install_textractor.py
+!/scripts/test_capture.py
+!/scripts/verify_capture_native.py
+!/scripts/verify_capture.cjs
 !/scripts/test_story_memory.py
 !/scripts/verify_story.cjs
 !/scripts/test_window_settings.py

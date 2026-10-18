@@ -19,12 +19,34 @@
     <section id="story-panel" hidden role="dialog" aria-modal="true" aria-labelledby="story-title">
       <header class="story-header"><div><h1 id="story-title">一起读到这里</h1><p id="story-position">先建立一篇共读</p></div><button id="story-close" aria-label="关闭剧情记录">×</button></header>
       <div class="story-picker"><label class="sr-only" for="story-run">当前共读</label><select id="story-run"><option value="">普通聊天</option></select><button id="story-new-toggle" type="button" aria-expanded="false" aria-controls="story-new-form">新共读</button></div>
-      <nav class="story-tabs" aria-label="剧情记录分类"><button type="button" data-story-tab="events" aria-pressed="true">原文</button><button type="button" data-story-tab="import" aria-pressed="false">收录</button><button type="button" data-story-tab="bookmarks" aria-pressed="false">书签与路线</button></nav>
+      <nav class="story-tabs" aria-label="剧情记录分类"><button type="button" data-story-tab="events" aria-pressed="true">原文</button><button type="button" data-story-tab="import" aria-pressed="false">收录</button><button type="button" data-story-tab="bookmarks" aria-pressed="false">书签与路线</button><button type="button" data-story-tab="capture" aria-pressed="false">自动取词</button></nav>
       <div class="story-content">
         <form id="story-new-form" data-story-pane="new" hidden><label for="story-game-title">游戏名称</label><input id="story-game-title" type="text" maxlength="100" placeholder="你正在玩的中文版游戏" required><label for="story-run-name">这篇共读的名字</label><input id="story-run-name" type="text" maxlength="60" placeholder="初见共读"><button type="submit">建立共读</button></form>
         <div data-story-pane="events"><div id="story-evidence" hidden><h2>本次回复的原文依据</h2><p class="story-note">这是已读原文；角色的说辞仍需结合剧情判断。</p><div id="story-evidence-lines"></div><button id="story-evidence-back" type="button">返回全部已读原文</button></div><div id="story-all-events"><p class="story-note">仅显示当前路线、当前进度内的原文。可点“读到这里”校准进度。</p><button id="story-before" type="button" hidden>更早的原文</button><div id="story-events"></div><button id="story-next" type="button" hidden>我已重读下一句，前进一步</button></div></div>
         <div data-story-pane="import" hidden><form id="story-import-form"><label for="story-text">粘贴已经读过的中文剧情</label><textarea id="story-text" maxlength="60000" rows="6" placeholder="美咲：昨晚我没有离开宿舍。&#10;旁白：她避开了你的目光。" required></textarea><p class="story-note">每行作为一段原文，空行跳过。不要粘贴尚未阅读的整部脚本。</p><label for="story-kind">这段内容是</label><select id="story-kind"><option value="auto">自动辨认对白、旁白和选项</option><option value="dialogue">人物对白</option><option value="narration">旁白</option><option value="choice">选项</option></select><div id="story-speaker-field" hidden><label for="story-speaker">说话者（可留空）</label><input id="story-speaker" type="text" maxlength="30"></div><label class="story-check"><input id="story-confirm" type="checkbox" required>这些内容我已经读过</label><button id="story-import-submit" type="submit">收录并更新进度</button><p class="story-note">在回退位置收录新内容，会另存为分支，原路线继续保留。</p></form></div>
         <div data-story-pane="bookmarks" hidden><form id="story-bookmark-form"><label for="story-bookmark-name">在当前进度留个书签</label><div class="story-inline"><input id="story-bookmark-name" type="text" maxlength="60" placeholder="例如：旧校舍前的选项"><button type="submit">留书签</button></div></form><div id="story-bookmarks"></div><hr><form id="story-fork-form"><label for="story-branch-name">从当前位置开启另一条路线</label><div class="story-inline"><input id="story-branch-name" type="text" maxlength="60" placeholder="新路线的名字（可留空）"><button type="submit">分支</button></div></form><label for="story-branch">切换路线（回到该路线已记录的末尾）</label><select id="story-branch"></select><p class="story-note">读档后请在这里恢复书签或校准进度。Yuki 的讨论会随当前路线一起切换。</p></div>
+        <div id="capture-panel" data-story-pane="capture" hidden>
+          <p id="capture-install" class="story-note" hidden>取词内核尚未准备。请按 README 的“自动取词”说明安装官方工具。</p>
+          <label for="capture-process">正在运行的游戏</label><select id="capture-process"><option value="">选择游戏窗口</option></select>
+          <div class="capture-actions"><button id="capture-refresh" type="button">刷新游戏</button><button id="capture-attach" type="button">连接游戏</button></div>
+          <p id="capture-game" class="story-note">尚未连接游戏</p>
+          <div id="capture-connected" hidden>
+            <label for="capture-thread">选择正文来源</label><select id="capture-thread"><option value="">先推进台词，再选择正文来源</option></select>
+            <p id="capture-preview" class="capture-preview">等待游戏的新台词……</p><p id="capture-source" class="story-note"></p>
+            <p class="story-note">选中文字与游戏正文一致的来源，避开菜单。这里只预览新台词，不读取整部游戏脚本。</p>
+            <label for="capture-kind">正文类型</label><select id="capture-kind"><option value="auto">自动辨认姓名、旁白与选项</option><option value="dialogue">人物对白</option><option value="narration">旁白</option><option value="choice">选项</option></select>
+            <div id="capture-speaker-field" hidden><label for="capture-speaker">说话者（可留空）</label><input id="capture-speaker" maxlength="30"></div>
+            <button id="capture-select" type="button">使用这个来源</button>
+            <p class="story-note">姓名与正文分开时，先选正文；无法识别的姓名会留空。</p>
+            <p id="capture-target" class="story-note"></p>
+            <label class="story-check"><input id="capture-confirm" type="checkbox">确认只记录我正在阅读的正文</label>
+            <div class="capture-actions"><button id="capture-record" type="button">开始记录</button><button id="capture-pause" type="button">暂停</button><button id="capture-detach" type="button">断开</button></div>
+            <p id="capture-count" class="story-note">本次已记录 0 句</p>
+            <details class="capture-advanced"><summary>手动 Hook 码</summary><form id="capture-hook-form"><label for="capture-code">自动识别不到正文时填写</label><input id="capture-code" maxlength="440" placeholder="H… 或 R…" spellcheck="false"><button id="capture-code-submit" type="submit">添加 Hook</button></form></details>
+          </div>
+          <p id="capture-status" role="status" class="story-note">连接游戏后，先预览并选择正文来源。</p>
+          <p class="story-note">只收录开始记录后新出现的台词，不自动提问或朗读。读档前请暂停并恢复书签；切换阅读位置后需重新开始记录。关闭 Yuki 会断开游戏。</p>
+        </div>
       </div>
       <footer class="story-footer"><p id="story-status" role="status">原文只保存在本机，收录不会调用模型。</p></footer>
     </section>

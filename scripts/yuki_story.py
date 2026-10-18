@@ -233,6 +233,22 @@ class StoryStore:
 
     def ingest(self, text, kind, speaker, request_id, expected, run_id):
         events = self.parse(text, kind, speaker)
+        return self._ingest(events, request_id, expected, run_id, 'manual')
+
+    def ingest_capture(self, text, raw_text, kind, speaker, request_id, expected, run_id, source):
+        if not text or len(text) > 2000 or len(raw_text) > 8000:
+            raise ValueError('取词正文长度不正确。')
+        if kind == 'auto':
+            match = re.match(r'^【([^】]{1,30})】\s*(.+)$', text)
+            if match:
+                text = match[1] + '：' + match[2]
+        events = self.parse(text, kind, speaker)
+        if len(events) != 1:
+            raise ValueError('取词正文应为一段完整台词。')
+        events[0]['raw_text'] = raw_text
+        return self._ingest(events, request_id, expected, run_id, source)
+
+    def _ingest(self, events, request_id, expected, run_id, source):
         digest = hashlib.sha256(json.dumps(events, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         with self.connection(True) as db:
             run = self._run(db)
@@ -252,7 +268,7 @@ class StoryStore:
             for offset, event in enumerate(events, 1):
                 db.execute('INSERT INTO events(run_id,branch_id,position,kind,speaker,text,raw_text,source,confirmed_read,created_at) '
                            'VALUES(?,?,?,?,?,?,?,?,1,?)', (run_id, branch_id, run['position'] + offset, event['kind'],
-                           event['speaker'], event['text'], event['raw_text'], 'manual', created_at))
+                           event['speaker'], event['text'], event['raw_text'], source, created_at))
             db.execute('UPDATE runs SET position=? WHERE id=?', (run['position'] + len(events), run_id))
             db.execute('INSERT INTO imports VALUES(?,?,?)', (run_id, request_id, digest))
         return True
