@@ -218,6 +218,7 @@ class CaptureService:
         self.message = '连接游戏后，先预览并选择正文来源。'
         self.saved = self.duplicates = 0
         self.block = self.pending = self.last = None
+        self.replay = None
         self.started = 0
 
     def status(self):
@@ -281,7 +282,7 @@ class CaptureService:
             raise ValueError('请先选择并确认正文来源。')
         if not self.runtime.alive():
             raise ValueError('取词工具已退出，请重新连接游戏。')
-        self.block = self.pending = self.last = None
+        self.block = self.pending = self.last = self.replay = None
         self.started = time.monotonic()
         self.binding = (epoch, run_id)
         self.recording = True
@@ -290,7 +291,7 @@ class CaptureService:
 
     def pause(self, message='已暂停记录；接下来只预览，不写入剧情。'):
         self.recording = False
-        self.binding = self.pending = self.last = None
+        self.binding = self.pending = self.last = self.replay = None
         self.message = message
 
     def check_scope(self):
@@ -376,6 +377,15 @@ class CaptureService:
             self.duplicates += 1
             self.last = item
             return
+        decision = self.story.screen_line(item['clean'], self.replay)
+        if decision['action'] == 'hold':
+            self.replay = decision
+            self.message = decision['message']
+            return
+        if decision['action'] == 'rewind':
+            self.pause(decision['message'])
+            return
+        self.replay = None
         epoch, run_id = self.binding
         try:
             self.story.ingest_capture(item['clean'], item['raw'], self.kind, self.speaker,

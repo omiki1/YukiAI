@@ -33,6 +33,7 @@ class ReadingSnapshot:
     scenes: tuple = ()
     characters: tuple = ()
     mode: str = 'galgame'
+    focus_position: int = 0
 
 
 # Derived only from events already inside the current route prefix. No model call.
@@ -103,6 +104,38 @@ def extract_aliases(text):
 CHAPTER_RE = re.compile(r'^第[0-9０-９一二三四五六七八九十百千零〇两]+[章节回]')
 SAID_RE = re.compile(r'^([\u3400-\u9fff]{1,8}?)(?:说道|问道|答道|笑道|叫道|说|道)[：:，,]?\s*[“「](.+)[”」]\s*$')
 SAID_SKIP = {'他', '她', '我', '你', '它', '他们', '她们', '我们'}
+
+
+def progress_key(text):
+    return ''.join((text or '').split())[:80]
+
+
+def line_keys(event):
+    found = {progress_key(event.get('text')), progress_key(event.get('raw_text'))}
+    speaker = event.get('speaker') or ''
+    if speaker:
+        found.add(progress_key(speaker + '：' + (event.get('text') or '')))
+    return {item for item in found if len(item) >= 12}
+
+
+def locate_sequence(events, keys, tip):
+    """Find an earlier stretch that repeats these lines. Short lines never count."""
+    keys = [progress_key(key) for key in keys]
+    if not keys or len(keys[0]) < 12:
+        return None
+    grouped = {}
+    for event in events:
+        grouped.setdefault(event['branch_id'], []).append(event)
+    for branch_id, rows in grouped.items():
+        rows.sort(key=lambda item: item['position'])
+        stored = [line_keys(item) for item in rows]
+        width = len(keys)
+        for index, row in enumerate(rows):
+            if row['position'] > tip - 2 or index + width > len(rows):
+                continue
+            if all(keys[offset] in stored[index + offset] for offset in range(width)):
+                return {'position': row['position'], 'branch_id': branch_id, 'count': width}
+    return None
 
 
 def starts_scene(event):
@@ -216,6 +249,8 @@ def span_indexes(scene, terms, names, explicit, role):
     count = len(scene)
     if not count:
         return []
+    if role == 'anchor':
+        return list(range(max(0, count - 4), count))
     if role in ('current', 'previous') and count <= CURRENT_KEEP:
         return list(range(count))
     if role == 'current':
@@ -475,7 +510,9 @@ def pack_story_context(snapshot, question=''):
     return {'mode': getattr(snapshot, 'mode', None) or 'galgame', 'game': snapshot.title, 'reading_position': snapshot.position,
             'reading': {'block': f'第{current["start"]}–{current["end"]}句' if current else '',
                         'at_choice': bool(current and current.get('at_choice')),
-                        'present_speakers': list(current.get('speakers') or []) if current else []},
+                        'present_speakers': list(current.get('speakers') or []) if current else [],
+                        'confirmed_position': snapshot.position,
+                        'asked_about': getattr(snapshot, 'focus_position', None) or snapshot.position},
             'loaded_blocks': blocks, 'scenes': catalog, 'characters': characters,
             'route_discussion': [{'speaker': 'player' if item['role'] == 'human' else 'Yuki',
                                   'text': focus_text(item.get('content') or '', terms, DISCUSSION_CLIP)}
@@ -520,6 +557,10 @@ class StoryStore:
                     chat_generation INTEGER NOT NULL,user_text TEXT NOT NULL,reply TEXT NOT NULL,
                     emotion TEXT NOT NULL,answer_type TEXT NOT NULL,evidence_ids TEXT NOT NULL,created_at TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS turn_scope ON story_turns(run_id,branch_id,position);
+                CREATE TABLE IF NOT EXISTS progress_checks(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL REFERENCES runs(id),
+                    branch_id TEXT NOT NULL,position INTEGER NOT NULL,kind TEXT NOT NULL,
+                    focus_position INTEGER NOT NULL,detail TEXT NOT NULL,created_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS reading_state(
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1),active_run_id TEXT REFERENCES runs(id),epoch INTEGER NOT NULL);
                 INSERT OR IGNORE INTO reading_state VALUES(1,NULL,0);
@@ -723,6 +764,11 @@ class StoryStore:
                     raise StoryConflict('这次收录的内容已经改变，请重新提交。')
                 return False
             self._check(db, expected)
+            earlier = [dict(row) for row in db.execute('SELECT * FROM events WHERE run_id=? AND confirmed_read=1', (run_id,))]
+            replay = locate_sequence(earlier, [progress_key(event['text']) for event in events], run['position'])
+            if replay and replay['count'] >= 2:
+                self._note(db, run, 'rewind', replay['position'], f'收录内容和第 {replay["position"]} 句起的已读原文重合')
+                raise ValueError(f'这几句从第 {replay["position"]} 句起已经读过。请回到书签，不要写成新进度。')
             branch = self._branch(db, run_id, run['branch_id'])
             branch_id = run['branch_id']
             if run['position'] < self._tip(db, branch):
@@ -734,7 +780,63 @@ class StoryStore:
                            event['speaker'], event['text'], event['raw_text'], source, created_at))
             db.execute('UPDATE runs SET position=? WHERE id=?', (run['position'] + len(events), run_id))
             db.execute('INSERT INTO imports VALUES(?,?,?)', (run_id, request_id, digest))
+            self._note(db, run, 'forward', run['position'] + len(events), f'向前收录了 {len(events)} 句')
         return True
+
+    def _note(self, db, run, kind, focus, detail):
+        db.execute('INSERT INTO progress_checks(run_id,branch_id,position,kind,focus_position,detail,created_at) VALUES(?,?,?,?,?,?,?)',
+                   (run['id'], run['branch_id'], run['position'], kind, int(focus or 0), detail[:180], timestamp()))
+
+    def screen_line(self, text, hold=None):
+        """One captured line. A repeated line is only a rewind after the next line agrees."""
+        key = progress_key(text)
+        with self.connection(True) as db:
+            run = self._run(db)
+            if hold:
+                row = db.execute('SELECT * FROM events WHERE run_id=? AND branch_id=? AND position>? ORDER BY position LIMIT 1',
+                                 (run['id'], hold.get('branch_id'), hold.get('position'))).fetchone()
+                if row and len(key) >= 12 and key in line_keys(dict(row)):
+                    self._note(db, run, 'rewind', hold['position'], f'连续两句与第 {hold["position"]} 句附近的已读台词相同')
+                    return {'action': 'rewind', 'position': hold['position'],
+                            'message': f'连续两句都是已读台词，像是回到第 {hold["position"]} 句。记录已暂停，请先回到书签。'}
+            earlier = [dict(row) for row in db.execute('SELECT * FROM events WHERE run_id=? AND confirmed_read=1', (run['id'],))]
+            found = locate_sequence(earlier, [key], run['position'])
+            if found:
+                self._note(db, run, 'hold', found['position'], f'这句与第 {found["position"]} 句相同，等下一句确认')
+                return {'action': 'hold', 'position': found['position'], 'branch_id': found['branch_id'],
+                        'message': f'这句和第 {found["position"]} 句相同。下一句若也对上，会暂停记录。'}
+            return {'action': 'save'}
+
+    def note_question(self, snapshot):
+        if not snapshot or not snapshot.run_id:
+            return
+        with self.connection(True) as db:
+            state = self._state(db)
+            if state['active_run_id'] != snapshot.run_id or state['epoch'] != snapshot.epoch:
+                return
+            run = self._run(db)
+            focus = snapshot.focus_position or run['position']
+            detail = f'这一问对上第 {focus} 句' if focus != run['position'] else '这一问就在当前进度'
+            self._note(db, run, 'question', focus, detail)
+
+    def _progress(self, db, run):
+        rows = [dict(row) for row in db.execute(
+            'SELECT * FROM progress_checks WHERE run_id=? ORDER BY id DESC LIMIT 6', (run['id'],))]
+        rows.reverse()
+        questions = [row for row in rows if row['kind'] == 'question']
+        latest = rows[-1] if rows else None
+        detail = ''
+        verdict = 'steady'
+        if latest and latest['kind'] == 'rewind':
+            verdict = 'rewind'
+            detail = latest['detail']
+        elif len(questions) >= 2 and abs(questions[-1]['focus_position'] - questions[-2]['focus_position']) <= 4:
+            focus = questions[-1]['focus_position']
+            if latest and latest['kind'] == 'question' and run['position'] - focus >= 12:
+                verdict = 'looking_back'
+                detail = f'最近两问都在看第 {focus} 句附近，确认进度仍是第 {run["position"]} 句。'
+        return {'verdict': verdict, 'detail': detail,
+                'focus': questions[-1]['focus_position'] if questions else run['position']}
 
     def bookmark(self, name, expected):
         with self.connection(True) as db:
@@ -803,6 +905,7 @@ class StoryStore:
                 'tip': self._tip(db, branch), 'events': events,
                 'more_before': events[0]['position'] if events and events[0]['position'] > 1 else None,
                 'messages': self._messages(db, run),
+                'progress': self._progress(db, run),
                 'bookmarks': [dict(row) for row in db.execute('SELECT id,name,position,branch_id FROM bookmarks WHERE run_id=? ORDER BY rowid DESC', (run['id'],))],
                 'branches': [{'id': row['id'], 'name': row['name'], 'tip': self._tip(db, row)} for row in db.execute('SELECT * FROM branches WHERE run_id=? ORDER BY rowid', (run['id'],))],
                 'memory': present_memory(self._events(db, run))}
@@ -828,11 +931,27 @@ class StoryStore:
                                 if person['name'] in question or any(alias in question for alias in person['aliases']))
             explicit = set(re.findall(r'第\s*(\d+)\s*[句条段]', question or ''))
             chosen_blocks = choose_blocks(scenes, terms, focus_names, explicit)
-            ordered_blocks = [scene for scene in chosen_blocks if scene is current] + [scene for scene in chosen_blocks if scene is not current]
+            # The passage the question names is loaded first. The confirmed tip stays a short anchor.
+            focus_scene = current
+            if chosen_blocks:
+                focus_scene = max(chosen_blocks, key=lambda scene: (block_score(scene, terms, focus_names), scene[-1]['position'] if scene else 0))
+                if current and block_score(focus_scene, terms, focus_names) == 0:
+                    focus_scene = current
+            ordered_blocks = []
+            for scene in (focus_scene, current, *chosen_blocks):
+                if scene and scene not in ordered_blocks:
+                    ordered_blocks.append(scene)
             chosen, used, budget = [], set(), OPEN_BUDGET
             opened = []
             for scene in ordered_blocks:
-                role = 'current' if scene is current else 'previous' if scene is nearby else 'opened'
+                if scene is current and scene is focus_scene:
+                    role = 'current'
+                elif scene is current:
+                    role = 'anchor'
+                elif scene is nearby:
+                    role = 'previous'
+                else:
+                    role = 'opened'
                 budget, ok = take_span(scene, role, terms, focus_names, explicit, chosen, used, budget)
                 if ok:
                     opened.append(scene)
@@ -860,9 +979,15 @@ class StoryStore:
                     characters.append(card)
             newest = list(reversed(self._messages(db, run)))[:DISCUSSION_TURNS]
             messages = [{'role': message['role'], 'content': clip(message['content'], DISCUSSION_CLIP)} for message in reversed(newest)]
+            explicit_lines = [event for event in chosen if str(event['position']) in explicit]
+            if explicit_lines:
+                focus_position = explicit_lines[0]['position']
+            else:
+                ranked_lines = sorted(chosen, key=lambda event: event_score(event, terms, focus_names), reverse=True)
+                focus_position = ranked_lines[0]['position'] if ranked_lines and event_score(ranked_lines[0], terms, focus_names) else run['position']
             return ReadingSnapshot(state['epoch'], run['id'], run['branch_id'], run['position'], run['chat_generation'],
                                    run['title'], tuple(sorted(chosen, key=lambda event: event['position'])), tuple(reversed(messages)),
-                                   tuple(cards), tuple(characters), run['mode'] or 'galgame')
+                                   tuple(cards), tuple(characters), run['mode'] or 'galgame', focus_position)
 
     def matches(self, snapshot):
         with self.connection() as db:

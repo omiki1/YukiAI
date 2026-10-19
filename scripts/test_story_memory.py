@@ -224,6 +224,31 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(any('旧图书馆' in text for text in texts))
         self.assertFalse(any('食堂' in text for text in texts))
 
+    def test_progress_needs_two_agreeing_rounds(self):
+        opening = '旁白：旧图书馆的灯一直亮着，没有人进来。\n旁白：他把红色笔记本放回架子的最上层。'
+        self.ingest(opening)
+        self.ingest('\n'.join(f'旁白：第{i}句只是路过走廊，没有新的线索。' for i in range(3, 16)))
+        position = self.store.view()['active']['position']
+        self.assertGreaterEqual(position, 15)
+        hold = self.store.screen_line('旁白：旧图书馆的灯一直亮着，没有人进来。')
+        self.assertEqual(hold['action'], 'hold')
+        self.assertEqual(self.store.view()['active']['position'], position)
+        fresh = self.store.screen_line('窗边的猫跳上了讲台，看着门外。', hold)
+        self.assertEqual(fresh['action'], 'save')
+        rewind = self.store.screen_line('他把红色笔记本放回架子的最上层。', hold)
+        self.assertEqual(rewind['action'], 'rewind')
+        self.assertEqual(self.store.view()['active']['position'], position)
+        with self.assertRaises(ValueError):
+            self.ingest(opening)
+        self.assertEqual(self.store.view()['active']['position'], position)
+        snapshot = self.store.snapshot('旧图书馆的灯', self.store.epoch())
+        self.assertLess(snapshot.focus_position, position - 8)
+        self.store.note_question(snapshot)
+        self.store.note_question(snapshot)
+        progress = self.store.view()['active']['progress']
+        self.assertEqual(progress['verdict'], 'looking_back')
+        self.assertIn(str(snapshot.focus_position), progress['detail'])
+
     def test_story_reply_json_can_be_recovered(self):
         raw = '先说结论。\n{"text":"柜台上温着酒。","emotion":"serious","answer_type":"chat","evidence_ids":[]}\n'
         data = TextChat.load_json_object(raw)

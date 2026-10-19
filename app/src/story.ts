@@ -31,7 +31,7 @@ export class StoryPanel{
  get epoch(){return this.state?.epoch??null;}
  get active(){return this.state?.active??null;}
  async load(){const generation=++this.generation;const data=await api('story');if(generation!==this.generation)return;
-  const signature=(state:any)=>JSON.stringify([state?.epoch,state?.runs,state?.active?.position,state?.active?.messages,state?.active?.bookmarks,state?.active?.branches,state?.active?.memory]);
+  const signature=(state:any)=>JSON.stringify([state?.epoch,state?.runs,state?.active?.position,state?.active?.messages,state?.active?.bookmarks,state?.active?.branches,state?.active?.memory,state?.active?.progress]);
   if(!this.state||signature(data)!==signature(this.state))this.apply(data);
  }
  open(){this.opening();$('story-panel').hidden=false;$('story-toggle').setAttribute('aria-expanded','true');$('story-close').focus();this.load().catch(e=>this.message(e.message,true));}
@@ -48,6 +48,7 @@ export class StoryPanel{
   $('story-text').placeholder=novel?'第一章\n他站着喝酒，穿的却是长衫。':'美咲：昨晚我没有离开宿舍。\n旁白：她避开了你的目光。';
   $('story-position').textContent=place;
   $('story-position').title=$('story-position').textContent;
+  const progress=active?.progress;$('story-progress').hidden=!progress?.detail;$('story-progress').textContent=progress?.detail||'';
   if(boundary){this.allEvents();$('story-confirm').checked=false;this.message('阅读位置已切换，旧进度的回复已收起。');}
   this.renderEvents();this.renderMemory();this.renderBookmarks();this.capture.contextChanged();this.changed(data,boundary);
  }
