@@ -191,6 +191,6 @@ class TextChat:
             raw=response.choices[0].message.content or ''
             try:
                 return self.read_story_reply(raw,snapshot,text)
-            except (json.JSONDecodeError,ValueError) as exc:
+            except json.JSONDecodeError as exc:
                 last=exc
         raise last

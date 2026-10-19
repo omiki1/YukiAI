@@ -368,6 +368,19 @@ class StoryApiTests(unittest.TestCase):
         self.client.close()
         self.temp.cleanup()
 
+    def test_two_questions_about_an_early_line_are_marked_looking_back(self):
+        lines = '旁白：旧图书馆的灯一直亮着，没有人进来。\n' + '\n'.join(
+            f'旁白：第{i}句只是路过走廊，没有新的线索。' for i in range(2, 16))
+        body = {'epoch': self.state['epoch'], 'run_id': self.state['active']['id'], 'text': lines,
+                'request_id': 'api-progress-lines', 'confirmed_read': True}
+        self.assertEqual(self.client.post('/api/story/import', json=body).status_code, 200)
+        epoch = self.client.get('/api/story').json()['epoch']
+        for _ in range(2):
+            result = self.client.post('/api/chat', json={'text': '旧图书馆的灯', 'session_id': 'story', 'story_epoch': epoch})
+            self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()['progress_verdict'], 'looking_back')
+        self.assertIn('附近', result.json()['progress_detail'])
+
     def test_api_import_chat_evidence_and_restart(self):
         body = {'epoch':self.state['epoch'], 'run_id':self.state['active']['id'], 'text':COMMON,
                 'request_id':'api-import-one', 'confirmed_read':True}

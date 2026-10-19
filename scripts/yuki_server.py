@@ -325,8 +325,11 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
                     result=ground_story_answer(result,snapshot,text)
                     result['evidence']=story.append_exchange(snapshot,text,result)
                     story.note_question(snapshot)
+                    progress=(story.view().get('active') or {}).get('progress') or {}
                     result['story_position']=snapshot.position
                     result['reading_focus']=snapshot.focus_position
+                    result['progress_detail']=progress.get('detail') or ''
+                    result['progress_verdict']=progress.get('verdict') or 'steady'
                 else:store.append_exchange(data.session_id,text,result['text'],result['emotion'])
                 result['story_epoch']=snapshot.epoch
                 return result

@@ -13,7 +13,7 @@ const greeting='读到哪儿了？我陪你一起看。';
 let host:any=null,session='',turns:Turn[]=[],pending=false,typing:any=null,relax:any=null,fullText='';
 let loadTask:Promise<void>|null=null;
 let voiceEnabled=false,previewMode=false;
-let classicTurns:Turn[]=[],conversationGeneration=0,readingInitialized=false,currentRequest:AbortController|null=null,currentEvidence:StoryEvidence[]=[],replyKind='';
+let classicTurns:Turn[]=[],conversationGeneration=0,readingInitialized=false,currentRequest:AbortController|null=null,currentEvidence:StoryEvidence[]=[],replyKind='',progressNote='';
 const speech=new SpeechPlayer(busy=>{$('voice-stop').hidden=!busy;$('settings-voice-stop').hidden=!busy;});
 const settings=new SettingsPanel(avatar,speech,data=>{voiceEnabled=data.voice.enabled&&!previewMode;if(!voiceEnabled)speech.stop();});
 const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');});
@@ -32,14 +32,16 @@ function syncReading(state:any,boundary:boolean){
  if(boundary||!readingInitialized){
   if(boundary){conversationGeneration++;currentRequest?.abort();currentRequest=null;speech.stop();stopTyping();clearTimeout(relax);avatar.setExpression('neutral');pending=false;$<HTMLButtonElement>('send').disabled=false;$<HTMLButtonElement>('new-chat').disabled=false;$<HTMLTextAreaElement>('message').value='';setComposer(false);closeMenu();$('dialogue-restore').textContent='◇ Yuki · 聊两句';}
   turns=active?active.messages:classicTurns;showLast();memories();
-  hint(active?'共读《'+active.title+'》 · 已读 '+active.position+' 句':'一起看剧情，慢慢聊 · 默认不剧透');
+  hint(readingHint(active));
  }
+ else if(!pending&&!typing&&active?.progress?.detail&&active.progress.verdict!=='steady'){progressNote=active.progress.detail;hint(replyHint());}
  readingInitialized=true;
 }
+function readingHint(active:any){const base=active?'共读《'+active.title+'》 · 已读 '+active.position+' 句':'一起看剧情，慢慢聊 · 默认不剧透';return active?.progress?.detail&&active.progress.verdict!=='steady'?base+' '+active.progress.detail:base;}
 function hint(text:string,error=false){$('hint').textContent=text;$('hint').title=text;$('hint').classList.toggle('error',error);$('hint').classList.toggle('busy',pending&&!error);}
 function stopTyping(){if(typing)clearTimeout(typing);typing=null;}
 function settle(){clearTimeout(relax);relax=setTimeout(()=>avatar.setExpression('neutral'),2800);}
-function replyHint(){if(replyKind==='uncertain')return '这句我没把握，只按已读到的说。';if(replyKind==='analysis')return '按你这条路线里读到的剧情说的。';return '可以继续和我说。';}
+function replyHint(){const novel=story.active?.mode==='novel';const base=replyKind==='uncertain'?'这句我没把握，只按已读到的说。':replyKind==='analysis'?(novel?'按你读到的这段说的。':'按你这条路线里读到的剧情说的。'):'可以继续和我说。';return progressNote?base+' '+progressNote:base;}
 function reveal(){stopTyping();$('reply').textContent=fullText;measureReply();hint(replyHint());settle();}
 function write(text:string,emotion='neutral',kind=''){
  stopTyping();clearTimeout(relax);resetBubble();replyKind=kind;fullText=text;$('reply').textContent='';avatar.setExpression(emotion);
@@ -80,6 +82,7 @@ $('composer').addEventListener('submit',async event=>{
  try{if(loadTask)await loadTask;if(generation!==conversationGeneration)return;const epoch=story.epoch;
   const result=await api('chat',{text,session_id:session,story_epoch:epoch},controller.signal);
   if(generation!==conversationGeneration||result.story_epoch!==undefined&&result.story_epoch!==story.epoch)return;
+  progressNote=(result.progress_verdict==='looking_back'||result.progress_verdict==='rewind')?(result.progress_detail||''):'';
   turns.push({role:'human',content:text},{role:'ai',content:result.text,emotion:result.emotion,evidence:result.evidence,answer_type:result.answer_type});if(input.value.trim()===text){input.value='';setComposer(false);}setEvidence(result.evidence);write(result.text,result.emotion,result.answer_type||'');memories();
   if(!$('dialogue-restore').hidden)$('dialogue-restore').textContent='◇ Yuki · 有新回复';
   if(voiceEnabled){if(result.text.length<=1200)speech.play('speech',{text:result.text,story_epoch:epoch}).catch(e=>{if(generation===conversationGeneration)hint(e.message,true);});else hint('这段回复较长，保留文字阅读。');}
