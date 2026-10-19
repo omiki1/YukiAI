@@ -16,6 +16,7 @@ from .yuki_chat import TextChat,ground_story_answer
 from .yuki_speech import SpeechClient
 from .yuki_story import StoryStore,StoryConflict
 from .yuki_capture import CaptureService
+from .yuki_memory import MemoryService
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -37,6 +38,8 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     app.state.speech=speech
     story=story or StoryStore(Path(history_directory)/'story.sqlite3' if history_directory else None)
     app.state.story=story
+    memory=MemoryService(story,store)
+    app.state.memory=memory
     app.state.active_chat_task=None
     app.state.active_speech_task=None
     lock=asyncio.Lock()
@@ -68,6 +71,7 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
             message='请检查填写内容，并确认收录的是已读文本；单次最多60000字、200行。'
         elif request.url.path=='/api/chat':message='请输入1～4000字，并刷新当前阅读进度后再试。'
         elif request.url.path.startswith('/api/capture'):message='请刷新取词面板，选择游戏与正文来源，并确认只记录已读台词。'
+        elif request.url.path.startswith('/api/memory'):message='请刷新记忆管理，重新预览操作范围并勾选确认。'
         return JSONResponse(status_code=422,content={'detail':message})
 
     @app.middleware('http')
@@ -287,6 +291,59 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
 
     @app.post('/api/story/chat/new')
     async def new_reading_chat(data:ReadingEdit):return edit_story(story.new_chat,data.epoch)
+
+    class MemoryPlan(ReadingEdit):
+        action:Literal['clear_discussion','delete_run','delete_history','restore_backup','delete_backup']
+        id:str=Field(min_length=1,max_length=100)
+
+    class MemoryConfirm(BaseModel):
+        token:str=Field(min_length=32,max_length=32)
+        confirmed:Literal[True]
+
+    class MemoryHistory(ReadingEdit):
+        id:str=Field(min_length=1,max_length=100)
+
+    def memory_call(function,*args):
+        old_epoch=story.epoch()
+        try:return function(*args)
+        except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
+        except FileNotFoundError:raise HTTPException(400,'没有找到对应的本机记录或备份，请刷新后重试。') from None
+        except ValueError as exc:raise HTTPException(400,str(exc)) from None
+        except Exception:raise HTTPException(500,'本机记忆操作未能完成，请检查磁盘空间和文件权限。') from None
+        finally:
+            if story.epoch()!=old_epoch:
+                cancel_reading_tasks()
+                capture.check_scope()
+
+    @app.get('/api/memory')
+    async def memory_inventory():return memory_call(memory.inventory)
+
+    @app.post('/api/memory/backup')
+    async def memory_backup(data:ReadingEdit):
+        return memory_call(memory.create_backup,data.epoch)
+
+    @app.post('/api/memory/plan')
+    async def memory_plan(data:MemoryPlan):return memory_call(memory.plan,data.action,data.id,data.epoch)
+
+    @app.post('/api/memory/history/open')
+    async def memory_open_history(data:MemoryHistory):
+        memory_call(store.read,data.id)
+        old_epoch=story.epoch()
+        memory_call(story.activate,None,data.epoch)
+        if story.epoch()==old_epoch:memory_call(story.memory_boundary,data.epoch)
+        return {'story':story.view(),'session_id':data.id}
+
+    @app.post('/api/memory/confirm')
+    async def memory_confirm(data:MemoryConfirm):
+        result=memory_call(memory.execute,data.token)
+        return {'result':result,'story':story.view()}
+
+    @app.post('/api/memory/compact')
+    async def memory_compact(data:ReadingEdit):
+        memory_call(story.memory_boundary,data.epoch)
+        capture.pause('正在整理本机记忆，取词已暂停；确认后可重新开始。')
+        memory_call(story.compact)
+        return {'story':story.view(),'memory':memory_call(memory.inventory)}
 
     @app.get('/favicon.ico')
     async def favicon():return Response(status_code=204)

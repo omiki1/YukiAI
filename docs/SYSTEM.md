@@ -124,6 +124,12 @@ Galgame 可以用本机的 Textractor 取当前窗口里的新台词。流程在
 
 ## 8. 本机文件
 
+“剧情记录 → 记忆管理”能查看占用、管理旧讨论和普通聊天、备份与恢复全部记忆。备份为版本化的逻辑快照：在同一个数据库读事务内读取所有共读表，兼容尚在 WAL 中的已提交内容；普通聊天只提取消息和已知元数据字段。备份不读取设置和模型。恢复前在隔离数据库校验结构、外键、分支祖先链、进度和引用范围，恢复时为共读、分支、原文、书签、讨论分配新编号，重写引用，保留现有资料。异常时回滚共读写入并清理本轮创建的聊天副本。
+
+清空讨论会删除所选共读的全部 `story_turns`，包含旧 `chat_generation` 和所有路线；原文保留。删除共读会在单个事务中删除其所有从属记录，只在作品没有其他共读时移除作品条目。所有影响阅读的操作都递增 `epoch`，取消旧回复/语音并暂停取词；界面同步移除缓存引用。普通聊天也可以找回或删除。
+
+清理先生成五分钟有效、一次使用的预览令牌。确认时核对阅读 `epoch` 和该次共读的版本摘要，防止刚收录的台词或新讨论被旧预览删除。恢复采用独立副本，不覆盖原记录。备份独立保留并可单独删除；没有自动保留期限或回收站。“整理空间”执行检查点和 VACUUM，只回收空闲页，不保证磁盘安全擦除。当前派生场景和人物卡仍从有效原文重算，未引入长期语义摘要缓存。
+
 | 路径 | 作用 | 是否进仓库 |
 | --- | --- | --- |
 | `app/src/`、`scripts/yuki_*.py` | 界面和本机服务 | 是 |
@@ -131,6 +137,7 @@ Galgame 可以用本机的 Textractor 取当前窗口里的新台词。流程在
 | `app/dist/`、`app/public/model/` | 构建结果和模型 | 否 |
 | `.yuki.local.json`、`.env.local` | 接口地址、模型和密钥 | 否 |
 | `data/story.sqlite3` | 原文、进度、书签、共读讨论 | 否 |
+| `data/memory_backups/` | 本机明文记忆快照与校验说明 | 否 |
 | `chat_history/` | 未进入共读时的普通聊天 | 否 |
 | `tools/textractor/` | 取词程序 | 否 |
 
@@ -148,13 +155,14 @@ Galgame 可以用本机的 Textractor 取当前窗口里的新台词。流程在
 - `POST /api/chat`、`POST /api/speech`。
 - `GET /api/story`，以及建立、切换、收录、书签、回档、进度、分支、新讨论。
 - `GET/POST /api/capture/...`：进程、连接、选来源、开始、暂停、断开、手动 Hook 码。
+- `GET /api/memory`，`POST /api/memory/backup`、`plan`、`confirm`、`compact`、`history/open`：占用、备份、预览/确认、空间整理和找回普通聊天。接口只处理本机生成的备份编号，不接受文件路径。
 
 收录接口要求明确勾选“这些内容我已经读过”。
 
 ## 10. 检查
 
 ```text
-python -m unittest scripts.test_window_backend scripts.test_window_settings scripts.test_story_memory scripts.test_capture
+python -m unittest scripts.test_window_backend scripts.test_window_settings scripts.test_story_memory scripts.test_capture scripts.test_memory_management
 python scripts/audit_upload.py
 ```
 

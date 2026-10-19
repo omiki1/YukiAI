@@ -978,6 +978,63 @@ class StoryStore:
             db.execute('UPDATE runs SET chat_generation=chat_generation+1 WHERE id=?', (run['id'],))
             self._boundary(db)
 
+    def memory_inventory(self):
+        """Counts cover every branch and chat generation, including hidden discussions."""
+        with self.connection() as db:
+            runs = []
+            for row in db.execute('SELECT r.*,g.title FROM runs r JOIN games g ON g.id=r.game_id ORDER BY r.created_at,r.rowid'):
+                item = dict(row)
+                for table in ('events', 'branches', 'bookmarks', 'story_turns', 'progress_checks', 'imports'):
+                    item[table] = db.execute(f'SELECT COUNT(*) FROM {table} WHERE run_id=?', (row['id'],)).fetchone()[0]
+                item['text_bytes'] = db.execute('SELECT COALESCE(SUM(length(CAST(raw_text AS BLOB))),0) FROM events WHERE run_id=?', (row['id'],)).fetchone()[0]
+                item['revision'] = self._memory_revision(db, row['id'])
+                runs.append(item)
+            return {'epoch': self._state(db)['epoch'], 'runs': runs}
+
+    def _memory_revision(self, db, run_id):
+        run = db.execute('SELECT * FROM runs WHERE id=?', (run_id,)).fetchone()
+        if not run:
+            raise ValueError('没有找到这篇共读。')
+        values = [dict(run)]
+        for table in ('events', 'branches', 'bookmarks', 'story_turns', 'progress_checks', 'imports'):
+            values.append(tuple(db.execute(f'SELECT COUNT(*),COALESCE(MAX(rowid),0) FROM {table} WHERE run_id=?', (run_id,)).fetchone()))
+        return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+    def clean_memory(self, run_id, action, expected, revision):
+        if action not in ('clear_discussion', 'delete_run'):
+            raise ValueError('不支持这项清理。')
+        with self.connection(True) as db:
+            state = self._check(db, expected)
+            if self._memory_revision(db, run_id) != revision:
+                raise StoryConflict('记录有了新变化，请重新预览清理范围。')
+            if action == 'clear_discussion':
+                db.execute('DELETE FROM story_turns WHERE run_id=?', (run_id,))
+                db.execute('UPDATE runs SET chat_generation=chat_generation+1 WHERE id=?', (run_id,))
+            else:
+                game_id = db.execute('SELECT game_id FROM runs WHERE id=?', (run_id,)).fetchone()[0]
+                if state['active_run_id'] == run_id:
+                    db.execute('UPDATE reading_state SET active_run_id=NULL WHERE singleton=1')
+                for table in ('progress_checks', 'story_turns', 'imports', 'bookmarks', 'events', 'branches'):
+                    db.execute(f'DELETE FROM {table} WHERE run_id=?', (run_id,))
+                db.execute('DELETE FROM runs WHERE id=?', (run_id,))
+                db.execute('DELETE FROM games WHERE id=? AND NOT EXISTS(SELECT 1 FROM runs WHERE game_id=?)', (game_id, game_id))
+            self._boundary(db)
+
+    def memory_boundary(self, expected):
+        with self.connection(True) as db:
+            self._check(db, expected)
+            self._boundary(db)
+
+    def compact(self):
+        """Only reclaim SQLite free pages; this is not a secure-erasure promise."""
+        db = sqlite3.connect(self.path, timeout=10)
+        try:
+            db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            db.execute('VACUUM')
+            db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+        finally:
+            db.close()
+
     def view(self, before=None):
         with self.connection() as db:
             state = self._state(db)

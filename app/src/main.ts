@@ -16,7 +16,7 @@ let voiceEnabled=false,previewMode=false;
 let classicTurns:Turn[]=[],conversationGeneration=0,readingInitialized=false,currentRequest:AbortController|null=null,currentEvidence:StoryEvidence[]=[],replyKind='',progressNote='';
 const speech=new SpeechPlayer(busy=>{$('voice-stop').hidden=!busy;$('settings-voice-stop').hidden=!busy;});
 const settings=new SettingsPanel(avatar,speech,data=>{voiceEnabled=data.voice.enabled&&!previewMode;if(!voiceEnabled)speech.stop();});
-const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');});
+const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');},changeHistory);
 const toolbar=new ModelToolbar(avatar);
 $('settings-toggle').addEventListener('click',()=>{story.close();closeMenu();setComposer(false);},true);
 function closeMenu(){$('dialogue-tools').hidden=true;$('more-toggle').setAttribute('aria-expanded','false');}
@@ -33,6 +33,7 @@ function syncReading(state:any,boundary:boolean){
   if(boundary){conversationGeneration++;currentRequest?.abort();currentRequest=null;speech.stop();stopTyping();clearTimeout(relax);avatar.setExpression('neutral');pending=false;$<HTMLButtonElement>('send').disabled=false;$<HTMLButtonElement>('new-chat').disabled=false;$<HTMLTextAreaElement>('message').value='';setComposer(false);closeMenu();$('dialogue-restore').textContent='◇ Yuki · 聊两句';}
   turns=active?active.messages:classicTurns;showLast();memories();
   hint(readingHint(active));
+  if(boundary&&!active)refreshClassic(state.epoch);
  }
  else if(!pending&&!typing&&active?.progress?.detail&&active.progress.verdict!=='steady'){progressNote=active.progress.detail;hint(replyHint());}
  readingInitialized=true;
@@ -54,6 +55,22 @@ function memories(){const root=$('history-lines');root.replaceChildren();if(!tur
  for(const t of turns){const div=document.createElement('div');div.className='memory '+(t.role==='human'?'user':'');const name=document.createElement('strong');name.textContent=t.role==='human'?'你':'Yuki';div.append(name,document.createTextNode(t.content));if(t.answer_type==='uncertain'){const note=document.createElement('span');note.className='memory-note';note.textContent='没把握';div.append(note);}if(t.evidence?.length){const button=document.createElement('button');button.className='memory-evidence';button.textContent='查看原文依据';button.onclick=()=>story.showEvidence(t.evidence);div.append(button);}root.append(div);}root.scrollTop=root.scrollHeight;
 }
 async function newSession(force=false){if(pending&&!force)return;if(story.active){await story.newChat();return;}speech.stop();const data=await api('sessions',{});session=data.session_id;turns=[];classicTurns=turns;localStorage.setItem('yuki.session',session);stopTyping();clearTimeout(relax);avatar.setExpression('neutral');resetBubble();$('reply').textContent=greeting;fullText=greeting;setEvidence();hint('一起看剧情，慢慢聊 · 默认不剧透');memories();requestAnimationFrame(measureReply);}
+async function changeHistory(uid:string,deleted:boolean){
+ if(deleted&&uid!==session)return;
+ conversationGeneration++;currentRequest?.abort();currentRequest=null;speech.stop();stopTyping();clearTimeout(relax);pending=false;
+ $<HTMLButtonElement>('send').disabled=false;$<HTMLButtonElement>('new-chat').disabled=false;
+ const data=deleted?await api('sessions',{}):await api('sessions/'+encodeURIComponent(uid));
+ session=data.session_id;classicTurns=data.messages||[];localStorage.setItem('yuki.session',session);
+ if(!story.active){turns=classicTurns;showLast();memories();}
+}
+function refreshClassic(epoch:number){
+ const uid=session,generation=conversationGeneration;
+ const current=()=>generation===conversationGeneration&&session===uid&&story.epoch===epoch&&!story.active;
+ // Another open client may have removed this conversation. Do not retain its cached text.
+ classicTurns=[];turns=classicTurns;showLast();memories();
+ api('sessions/'+encodeURIComponent(uid)).then(data=>{if(!current())return;classicTurns=data.messages;turns=classicTurns;showLast();memories();})
+  .catch(()=>{if(current())changeHistory(uid,true).catch(error=>hint(error.message,true));});
+}
 async function initialize(){
  const status=await api('status');previewMode=status.preview;await settings.load();session=localStorage.getItem('yuki.session')||'';
  if(session){try{const data=await api('sessions/'+encodeURIComponent(session));turns=data.messages;const last=[...turns].reverse().find(x=>x.role==='ai');if(last){$('reply').textContent=last.content;fullText=last.content;}}catch{session='';}}
