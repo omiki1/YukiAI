@@ -11,6 +11,7 @@ SCRIPT_FILES={'scripts/'+x for x in ['settings.py','yuki_chat.py','yuki_history.
 CORE_FILES={'app/vendor/live2d/Core/'+x for x in ['live2dcubismcore.d.ts','LICENSE.md','RedistributableFiles.txt']}
 SCRIPT_FILES.update({'scripts/yuki_memory.py','scripts/test_memory_management.py','scripts/verify_memory.cjs'})
 SCRIPT_FILES.update({'scripts/test_continuity.py','scripts/verify_continuity.cjs'})
+SCRIPT_FILES.update({'scripts/yuki_characters.py','scripts/test_characters.py','scripts/verify_characters.cjs'})
 OTHER_FILES={'docs/PUBLISHING.md','docs/SYSTEM.md','docs/WORKLOG.md','third_party/README.md','third_party/Open-LLM-VTuber-MIT.txt'}
 EXTENSIONS={'.pem','.key','.p12','.pfx','.moc3','.png','.jpg','.jpeg','.webp','.kra','.psd','.ora','.zip','.wav','.mp3','.mp4','.onnx','.safetensors','.pt','.pth','.ckpt','.gguf'}
 PATTERNS=[rb'\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{40,})\b',

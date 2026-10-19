@@ -67,7 +67,9 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     async def invalid_input(request,exc):
         # Validation errors must never echo submitted API keys or provider bodies.
         message='请检查填写内容：地址需使用 HTTPS（本机可用 HTTP），大小为 60%～110%，语速为 0.5～2。'
-        if request.url.path.startswith('/api/story'):
+        if request.url.path.startswith('/api/story/characters'):
+            message='请填写1～30字的已读称呼和人物名称，核对当前进度与原文，再确认保存。'
+        elif request.url.path.startswith('/api/story'):
             message='请检查填写内容，并确认收录的是已读文本；单次最多60000字、200行。'
         elif request.url.path=='/api/chat':message='请输入1～4000字，并刷新当前阅读进度后再试。'
         elif request.url.path.startswith('/api/capture'):message='请刷新取词面板，选择游戏与正文来源，并确认只记录已读台词。'
@@ -322,6 +324,47 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     @app.post('/api/story/notes/delete')
     async def delete_reading_note(data:DeleteNote):
         result=edit_story(story.delete_note,data.run_id,data.note_id,data.version,data.epoch)
+        cancel_reading_tasks()
+        return result
+
+    class CharacterInput(ReadingEdit):
+        run_id:str=Field(min_length=1,max_length=100)
+        position:int=Field(ge=1)
+        revision:int=Field(ge=0)
+        kind:Literal['alias','pronoun']
+        label:str=Field(min_length=1,max_length=30)
+        target:str=Field(min_length=1,max_length=30)
+        correction_id:str|None=Field(default=None,max_length=100)
+        version:int|None=Field(default=None,ge=1)
+
+    class CharacterSave(CharacterInput):
+        confirmed:Literal[True]
+
+    class CharacterDelete(ReadingEdit):
+        run_id:str=Field(min_length=1,max_length=100)
+        correction_id:str=Field(min_length=1,max_length=100)
+        version:int=Field(ge=1)
+        confirmed:Literal[True]
+
+    def character_args(data):
+        return (data.run_id,data.position,data.kind,data.label,data.target,data.epoch,data.correction_id,data.version,data.revision)
+
+    @app.get('/api/story/characters')
+    async def character_state(before_correction:int|None=Query(default=None,ge=1)):
+        return memory_call(story.character_state,before_correction)
+
+    @app.post('/api/story/characters/preview')
+    async def character_preview(data:CharacterInput):return memory_call(story.preview_character,*character_args(data))
+
+    @app.post('/api/story/characters/save')
+    async def character_save(data:CharacterSave):
+        result=edit_story(story.save_character,*character_args(data))
+        cancel_reading_tasks()
+        return result
+
+    @app.post('/api/story/characters/delete')
+    async def character_delete(data:CharacterDelete):
+        result=edit_story(story.delete_character,data.run_id,data.correction_id,data.version,data.epoch)
         cancel_reading_tasks()
         return result
 

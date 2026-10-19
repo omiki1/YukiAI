@@ -157,7 +157,7 @@ class ContinuityTests(unittest.TestCase):
         self.turn();original=self.note();self.store.fork('B',self.store.epoch());child=self.store.view()['active']['branch_id']
         self.store.select_branch(self.parent,self.store.epoch());self.note('父路线后来的猜测','theory',note=original);self.turn('父路线后来才聊的秘密')
         self.store.select_branch(child,self.store.epoch());manager=MemoryService(self.store,HistoryStore(self.root/'history'))
-        backup=manager.create_backup(self.store.epoch());self.assertEqual(backup['version'],2);self.assertEqual(backup['counts']['notes'],1)
+        backup=manager.create_backup(self.store.epoch());self.assertEqual(backup['version'],3);self.assertEqual(backup['counts']['notes'],1)
         manager.execute(manager.plan('restore_backup',backup['id'],self.store.epoch())['token']);restored=self.store.continuity()
         self.assertNotEqual(restored['run_id'],self.run);self.assertNotIn('后来',json.dumps(restored,ensure_ascii=False))
         self.assertNotEqual(restored['notes'][0]['note_id'],original['note_id']);self.assertNotEqual(restored['notes'][0]['evidence_ids'][0],self.source)
@@ -175,17 +175,20 @@ class ContinuityTests(unittest.TestCase):
     def test_legacy_schema_and_v1_backup_upgrade_without_losing_text(self):
         with self.store.connection(True) as db:
             db.execute('DROP TABLE reading_recaps');db.execute('DROP TABLE reading_notes')
+            db.execute('DROP TABLE character_corrections');db.execute('ALTER TABLE branches DROP COLUMN character_cutoff')
             db.execute('ALTER TABLE runs DROP COLUMN note_generation')
             db.execute('ALTER TABLE branches DROP COLUMN note_cutoff');db.execute('ALTER TABLE branches DROP COLUMN turn_cutoff')
             db.execute('ALTER TABLE story_turns DROP COLUMN note_generation')
         self.store=StoryStore(self.store.path);self.assertEqual(self.store.view()['active']['events'][-1]['id'],self.source)
         manager=MemoryService(self.store,HistoryStore(self.root/'history'));backup=manager.create_backup(self.store.epoch());folder=manager.directory/backup['id']
         payload=json.loads((folder/'memory.json').read_bytes());payload['version']=1;del payload['tables']['reading_notes']
+        del payload['tables']['character_corrections']
         for run in payload['tables']['runs']:del run['note_generation']
-        for branch in payload['tables']['branches']:del branch['note_cutoff'];del branch['turn_cutoff']
+        for branch in payload['tables']['branches']:del branch['note_cutoff'];del branch['turn_cutoff'];del branch['character_cutoff']
         for turn in payload['tables']['story_turns']:del turn['note_generation']
         content=encoded(payload);(folder/'memory.json').write_bytes(content);manifest=json.loads((folder/'manifest.json').read_bytes())
         manifest.update(version=1,bytes=len(content),sha256=hashlib.sha256(content).hexdigest());del manifest['counts']['notes']
+        del manifest['counts']['corrections']
         (folder/'manifest.json').write_bytes(encoded(manifest));manager.execute(manager.plan('restore_backup',backup['id'],self.store.epoch())['token'])
         self.assertEqual(self.store.continuity()['notes'],[])
         self.assertEqual(self.store.view()['active']['events'][-1]['raw_text'],'美咲：我没有去过旧校舍。')

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import sqlite3
 from uuid import uuid4
+from .yuki_characters import CharacterStoreMixin, corrected_people, pronouns
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,6 +39,8 @@ class ReadingSnapshot:
     referent_ambiguous: bool = False
     notes: tuple = ()
     note_revision: int = 0
+    character_corrections: tuple = ()
+    referent_source: str = ''
 
 
 # Derived only from events already inside the current route prefix. No model call.
@@ -378,13 +381,14 @@ def ui_line(event):
             'text': clip(event.get('text') or '', 80), 'raw_text': event.get('raw_text') or event.get('text') or ''}
 
 
-def present_memory(events):
+def present_memory(events, corrections=()):
     """Short, route-local memory for the reading panel. Claims stay separate from narration."""
     characters = []
-    people = [person for person in build_characters(events).values() if person['claims'] or person['witnessed']]
+    people = [person for person in corrected_people(events, [rule for rule in corrections if rule['kind']=='alias' or rule['active']]).values() if person['claims'] or person['witnessed']]
     people.sort(key=lambda person: max(line['position'] for line in person['claims'] + person['witnessed']), reverse=True)
     for person in people:
         characters.append({'name': person['name'], 'aliases': person['aliases'][:3],
+                           'user_aliases': [alias for alias in person['aliases'][:3] if alias in person.get('user_aliases', [])],
                            'claims': [ui_line(event) for event in person['claims'][-2:]],
                            'witnessed': [ui_line(event) for event in person['witnessed'][-2:]]})
         if len(characters) == 12:
@@ -404,7 +408,7 @@ def present_memory(events):
 
 
 def has_pronoun(question):
-    return any(token in (question or '').replace('其他', '') for token in ('她', '他'))
+    return bool(pronouns(question))
 
 
 NARRATION_STOP = {
@@ -592,6 +596,7 @@ def pack_story_context(snapshot, question=''):
                 row['text'] = focus_text(item.get('text') or '', terms, 80)
             return row
         characters.append({'name': person.get('name'), 'aliases': list(person.get('aliases') or []),
+                           'user_aliases': list(person.get('user_aliases') or []),
                            'claims': [slim(item) for item in person.get('claims') or []],
                            'witnessed': [slim(item) for item in person.get('witnessed') or []]})
     current = next((scene for scene in snapshot.scenes if scene.get('role') == 'current'), None)
@@ -602,6 +607,11 @@ def pack_story_context(snapshot, question=''):
                         'confirmed_position': snapshot.position,
                         'asked_about': getattr(snapshot, 'focus_position', None) or snapshot.position,
                         'referent': getattr(snapshot, 'referent', '') or '',
+                        'referent_source': getattr(snapshot, 'referent_source', '') or '',
+                        'character_corrections': [{'kind':rule['kind'],'label':rule['label'],'target':rule['target'],
+                            'scope':'line' if rule['kind']=='pronoun' else 'route','anchor_position':rule['anchor_position'],
+                            'linked_event_ids':[event_id for event_id in rule['evidence_ids'] if event_id in loaded_ids]}
+                            for rule in getattr(snapshot, 'character_corrections', ())],
                         'referent_ambiguous': bool(getattr(snapshot, 'referent_ambiguous', False))},
             'loaded_blocks': blocks, 'scenes': catalog, 'characters': characters,
             'player_notes': [{'kind': note['kind'], 'status': note['status'], 'text': focus_text(note['text'], terms, 200),
@@ -612,7 +622,7 @@ def pack_story_context(snapshot, question=''):
                                  for item in snapshot.messages]}
 
 
-class StoryStore:
+class StoryStore(CharacterStoreMixin):
     def __init__(self, path=None):
         self.path = Path(path) if path else ROOT / 'data' / 'story.sqlite3'
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -657,6 +667,12 @@ class StoryStore:
                     evidence_ids TEXT NOT NULL,origin_turn_id INTEGER REFERENCES story_turns(id) ON DELETE SET NULL,
                     created_at TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS note_scope ON reading_notes(run_id,branch_id,position);
+                CREATE TABLE IF NOT EXISTS character_corrections(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,correction_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL REFERENCES runs(id),branch_id TEXT NOT NULL REFERENCES branches(id),
+                    position INTEGER NOT NULL,kind TEXT NOT NULL,label TEXT NOT NULL,target TEXT NOT NULL,
+                    anchor_event_id INTEGER NOT NULL REFERENCES events(id),evidence_ids TEXT NOT NULL,created_at TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS character_scope ON character_corrections(run_id,branch_id,position);
                 CREATE TABLE IF NOT EXISTS reading_recaps(
                     run_id TEXT NOT NULL REFERENCES runs(id),branch_id TEXT NOT NULL REFERENCES branches(id),
                     fingerprint TEXT NOT NULL,content TEXT NOT NULL,PRIMARY KEY(run_id,branch_id));
@@ -675,7 +691,7 @@ class StoryStore:
             if 'note_generation' not in columns:
                 db.execute('ALTER TABLE runs ADD COLUMN note_generation INTEGER NOT NULL DEFAULT 0')
             branch_columns = {row[1] for row in db.execute('PRAGMA table_info(branches)')}
-            for column in ('note_cutoff', 'turn_cutoff'):
+            for column in ('note_cutoff', 'turn_cutoff', 'character_cutoff'):
                 if column not in branch_columns:
                     db.execute(f'ALTER TABLE branches ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0')
             turn_columns = {row[1] for row in db.execute('PRAGMA table_info(story_turns)')}
@@ -859,8 +875,9 @@ class StoryStore:
         name = name.strip() or f'分支 {count}'
         note_cutoff = db.execute('SELECT COALESCE(MAX(id),0) FROM reading_notes').fetchone()[0]
         turn_cutoff = db.execute('SELECT COALESCE(MAX(id),0) FROM story_turns').fetchone()[0]
-        db.execute('INSERT INTO branches(id,run_id,name,parent_id,fork_position,created_at,note_cutoff,turn_cutoff) VALUES(?,?,?,?,?,?,?,?)',
-                   (branch_id, run['id'], name, run['branch_id'], run['position'], timestamp(), note_cutoff, turn_cutoff))
+        character_cutoff = db.execute('SELECT COALESCE(MAX(id),0) FROM character_corrections').fetchone()[0]
+        db.execute('INSERT INTO branches(id,run_id,name,parent_id,fork_position,created_at,note_cutoff,turn_cutoff,character_cutoff) VALUES(?,?,?,?,?,?,?,?,?)',
+                   (branch_id, run['id'], name, run['branch_id'], run['position'], timestamp(), note_cutoff, turn_cutoff, character_cutoff))
         db.execute('UPDATE runs SET branch_id=? WHERE id=?', (branch_id, run['id']))
         self._boundary(db)
         return branch_id
@@ -1151,6 +1168,7 @@ class StoryStore:
                     item[table] = db.execute(f'SELECT COUNT(*) FROM {table} WHERE run_id=?', (row['id'],)).fetchone()[0]
                 item['text_bytes'] = db.execute('SELECT COALESCE(SUM(length(CAST(raw_text AS BLOB))),0) FROM events WHERE run_id=?', (row['id'],)).fetchone()[0]
                 item['notes'] = db.execute('SELECT COUNT(DISTINCT note_id) FROM reading_notes WHERE run_id=?', (row['id'],)).fetchone()[0]
+                item['corrections'] = db.execute('SELECT COUNT(DISTINCT correction_id) FROM character_corrections WHERE run_id=?', (row['id'],)).fetchone()[0]
                 item['revision'] = self._memory_revision(db, row['id'])
                 runs.append(item)
             return {'epoch': self._state(db)['epoch'], 'runs': runs}
@@ -1160,7 +1178,7 @@ class StoryStore:
         if not run:
             raise ValueError('没有找到这篇共读。')
         values = [dict(run)]
-        for table in ('events', 'branches', 'bookmarks', 'story_turns', 'progress_checks', 'imports', 'reading_notes'):
+        for table in ('events', 'branches', 'bookmarks', 'story_turns', 'progress_checks', 'imports', 'reading_notes', 'character_corrections'):
             values.append(tuple(db.execute(f'SELECT COUNT(*),COALESCE(MAX(rowid),0) FROM {table} WHERE run_id=?', (run_id,)).fetchone()))
         return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
@@ -1179,7 +1197,7 @@ class StoryStore:
                 game_id = db.execute('SELECT game_id FROM runs WHERE id=?', (run_id,)).fetchone()[0]
                 if state['active_run_id'] == run_id:
                     db.execute('UPDATE reading_state SET active_run_id=NULL WHERE singleton=1')
-                for table in ('reading_recaps', 'reading_notes', 'progress_checks', 'story_turns', 'imports', 'bookmarks', 'events', 'branches'):
+                for table in ('reading_recaps', 'character_corrections', 'reading_notes', 'progress_checks', 'story_turns', 'imports', 'bookmarks', 'events', 'branches'):
                     db.execute(f'DELETE FROM {table} WHERE run_id=?', (run_id,))
                 db.execute('DELETE FROM runs WHERE id=?', (run_id,))
                 db.execute('DELETE FROM games WHERE id=? AND NOT EXISTS(SELECT 1 FROM runs WHERE game_id=?)', (game_id, game_id))
@@ -1219,7 +1237,7 @@ class StoryStore:
                 'progress': self._progress(db, run),
                 'bookmarks': [dict(row) for row in db.execute('SELECT id,name,position,branch_id FROM bookmarks WHERE run_id=? ORDER BY rowid DESC', (run['id'],))],
                 'branches': [{'id': row['id'], 'name': row['name'], 'tip': self._tip(db, row)} for row in db.execute('SELECT * FROM branches WHERE run_id=? ORDER BY rowid', (run['id'],))],
-                'memory': present_memory(self._events(db, run))}
+                'memory': present_memory(self._events(db, run), self._visible_corrections(db, run))}
             return result
 
     def snapshot(self, question, expected=None):
@@ -1232,7 +1250,11 @@ class StoryStore:
             run = self._run(db)
             events = self._events(db, run)
             scenes = segment_scenes(events)
-            people = build_characters(events)
+            corrections = self._visible_corrections(db, run, events)
+            explicit_positions = set(re.findall(r'第\s*(\d+)\s*[句条段]', question or ''))
+            reference_position = int(next(iter(explicit_positions))) if len(explicit_positions)==1 else run['position'] if not explicit_positions else None
+            manual_refs = [rule for rule in corrections if rule['kind']=='pronoun' and rule['anchor_position']==reference_position and rule['label'] in pronouns(question)]
+            people = corrected_people(events, [rule for rule in corrections if rule['kind']=='alias' or rule in manual_refs])
             terms = question_terms(question)
             notes = self._visible_notes(db, run, events)
             def note_score(note):
@@ -1242,10 +1264,24 @@ class StoryStore:
             nearby = scenes[-2] if len(scenes) > 1 and current and len(current) < WORKING_SCENE_SHORT else ()
             # Names in the question point at a block; the block, not one matching line, is what gets opened.
             referent, referent_ambiguous = resolve_pronoun(question, scenes, people)
+            referent_source = 'inferred' if referent else ''
+            if manual_refs:
+                targets = {rule['target'] for rule in manual_refs}
+                referent = next(iter(targets)) if len(targets)==1 else ''
+                referent_ambiguous = bool(pronouns(question)-{rule['label'] for rule in manual_refs})
+                referent_source = 'player'
             selected_people = choose_characters(people, question, tuple(nearby) + tuple(current), referent)
-            focus_names = tuple(person['name'] for person in selected_people
-                                if person['name'] in question or any(alias in question for alias in person['aliases']) or person['name'] == referent)
-            explicit = set(re.findall(r'第\s*(\d+)\s*[句条段]', question or ''))
+            for rule in manual_refs:
+                if rule['target'] in people and people[rule['target']] not in selected_people:
+                    selected_people.insert(0, people[rule['target']])
+            selected_people = selected_people[:4]
+            reference_names = {rule['target'] for rule in manual_refs}
+            focused = [person for person in selected_people if person['name'] in question or any(alias in question for alias in person['aliases']) or person['name']==referent or person['name'] in reference_names]
+            focus_names = tuple(dict.fromkeys(name for person in focused for name in (person['name'], *person['aliases'])))
+            relevant_rules = (manual_refs + [rule for rule in corrections if rule['kind']=='alias' and (rule['label'] in question or rule['target'] in focus_names)])[:6]
+            explicit = set(explicit_positions)
+            correction_links = {event_id for rule in relevant_rules for event_id in rule['evidence_ids']}
+            explicit.update(str(event['position']) for event in events if event['id'] in correction_links)
             note_question = any(word in question for word in ('手记', '上次聊', '上回聊', '之前猜', '待解', '疑问'))
             linked = {event_id for note in selected_notes if note_question or note_score(note) >= 4 for event_id in note['evidence_ids']}
             explicit.update(str(event['position']) for event in events if event['id'] in linked)
@@ -1291,7 +1327,9 @@ class StoryStore:
             characters = []
             for person in selected_people:
                 names = (person['name'], *person['aliases'])
-                card = {'name': person['name'], 'aliases': person['aliases'][:3],
+                aliases = sorted(person['aliases'], key=lambda alias: alias in question, reverse=True)[:3]
+                card = {'name': person['name'], 'aliases': aliases,
+                        'user_aliases': [alias for alias in aliases if alias in person.get('user_aliases', [])],
                         'claims': trim_mentions(person['claims'], terms, names, 4, provided),
                         'witnessed': trim_mentions(person['witnessed'], terms, names, 3, provided)}
                 if card['claims'] or card['witnessed']:
@@ -1307,7 +1345,7 @@ class StoryStore:
             return ReadingSnapshot(state['epoch'], run['id'], run['branch_id'], run['position'], run['chat_generation'],
                                    run['title'], tuple(sorted(chosen, key=lambda event: event['position'])), tuple(reversed(messages)),
                                    tuple(cards), tuple(characters), run['mode'] or 'galgame', focus_position, referent, referent_ambiguous,
-                                   tuple(selected_notes), run['note_generation'])
+                                   tuple(selected_notes), run['note_generation'], tuple(relevant_rules), referent_source)
 
     def matches(self, snapshot):
         with self.connection() as db:
@@ -1330,7 +1368,7 @@ class StoryStore:
             if state['active_run_id'] != snapshot.run_id:
                 raise StoryConflict('共读记录已经切换。')
             if self._run(db)['note_generation'] != snapshot.note_revision:
-                raise StoryConflict('共读手记已经改变，请重新提问。')
+                raise StoryConflict('阅读记忆已经改变，请重新提问。')
             db.execute('INSERT INTO story_turns(run_id,branch_id,position,chat_generation,user_text,reply,emotion,answer_type,evidence_ids,created_at,note_generation) '
                        'VALUES(?,?,?,?,?,?,?,?,?,?,?)', (snapshot.run_id, snapshot.branch_id, snapshot.position,
                        snapshot.chat_generation, user, result['text'], result['emotion'], result.get('answer_type', 'uncertain'),

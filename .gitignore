@@ -37,6 +37,9 @@
 !/scripts/verify_memory.cjs
 !/scripts/test_continuity.py
 !/scripts/verify_continuity.cjs
+!/scripts/yuki_characters.py
+!/scripts/test_characters.py
+!/scripts/verify_characters.cjs
 !/scripts/yuki_server.py
 !/scripts/yuki_window.py
 !/scripts/yuki_config.py

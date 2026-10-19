@@ -12,16 +12,20 @@ import time
 from uuid import uuid4
 
 from .yuki_story import StoryStore, StoryConflict, timestamp
+from .yuki_characters import valid_character_name
 
 LEGACY_TABLES = ('games', 'runs', 'branches', 'events', 'imports', 'bookmarks', 'story_turns', 'progress_checks')
-TABLES = (*LEGACY_TABLES, 'reading_notes')
+V2_TABLES = (*LEGACY_TABLES, 'reading_notes')
+TABLES = (*V2_TABLES, 'character_corrections')
+COUNT_FIELDS = {1:{'runs','events','discussions','histories'},2:{'runs','events','discussions','histories','notes'},3:{'runs','events','discussions','histories','notes','corrections'}}
 HISTORY_FIELDS = {'role', 'content', 'timestamp', 'name', 'emotion'}
 INTEGER_COLUMNS = {
-    'runs': {'position', 'chat_generation', 'note_generation'}, 'branches': {'fork_position', 'note_cutoff', 'turn_cutoff'},
+    'runs': {'position', 'chat_generation', 'note_generation'}, 'branches': {'fork_position', 'note_cutoff', 'turn_cutoff', 'character_cutoff'},
     'events': {'id', 'position', 'confirmed_read'}, 'bookmarks': {'position'},
     'story_turns': {'id', 'position', 'chat_generation', 'note_generation'},
     'progress_checks': {'id', 'position', 'focus_position'},
     'reading_notes': {'id', 'position', 'origin_turn_id'},
+    'character_corrections': {'id', 'position', 'anchor_event_id'},
 }
 MAX_BACKUP = 256 * 1024 * 1024
 
@@ -59,12 +63,12 @@ class MemoryService:
         if path.stat().st_size > 8192:
             raise ValueError('备份说明损坏。')
         data = json.loads(path.read_text(encoding='utf-8'))
-        if (not isinstance(data, dict) or data.get('version') not in (1, 2) or data.get('id') != uid
+        if (not isinstance(data, dict) or data.get('version') not in (1, 2, 3) or data.get('id') != uid
                 or not isinstance(data.get('created_at'), str)
                 or not re.fullmatch(r'[a-f0-9]{64}', str(data.get('sha256', '')))
                 or type(data.get('bytes')) is not int or not 0 < data['bytes'] <= MAX_BACKUP
                 or not isinstance(data.get('counts'), dict)
-                or set(data['counts']) != ({'runs', 'events', 'discussions', 'histories', 'notes'} if data['version'] == 2 else {'runs', 'events', 'discussions', 'histories'})
+                or set(data['counts']) != COUNT_FIELDS[data['version']]
                 or any(type(n) is not int or n < 0 for n in data['counts'].values())):
             raise ValueError('备份说明损坏。')
         return data
@@ -114,16 +118,17 @@ class MemoryService:
                 rows = json.loads(self.history.path(item['id']).read_text(encoding='utf-8'))
                 histories[item['id']] = [{key: value for key, value in row.items() if key in HISTORY_FIELDS}
                     for row in rows if isinstance(row, dict) and row.get('role') in ('metadata', 'human', 'ai')]
-            payload = {'format': 'yuki-memory', 'version': 2, 'active_run_id': state['active_run_id'],
+            payload = {'format': 'yuki-memory', 'version': 3, 'active_run_id': state['active_run_id'],
                        'tables': tables, 'histories': histories}
         content = encoded(payload)
         if len(content) > MAX_BACKUP:
             raise ValueError('单次备份超过256MB，请先分批整理记录。')
         uid = uuid4().hex
-        manifest = {'id': uid, 'version': 2, 'created_at': timestamp(), 'sha256': digest(content), 'bytes': len(content),
+        manifest = {'id': uid, 'version': 3, 'created_at': timestamp(), 'sha256': digest(content), 'bytes': len(content),
                     'counts': {'runs': len(tables['runs']), 'events': len(tables['events']),
                                'discussions': len(tables['story_turns']), 'histories': len(histories),
-                               'notes': len({row['note_id'] for row in tables['reading_notes']})}}
+                               'notes': len({row['note_id'] for row in tables['reading_notes']}),
+                               'corrections': len({row['correction_id'] for row in tables['character_corrections']})}}
         self.directory.mkdir(parents=True, exist_ok=True)
         folder = self._folder(uid)
         folder.mkdir()
@@ -142,9 +147,9 @@ class MemoryService:
 
     def _validate(self, payload):
         """Build an isolated database: validate schema, foreign keys and route ownership."""
-        if (not isinstance(payload, dict) or payload.get('format') != 'yuki-memory' or payload.get('version') not in (1, 2)
+        if (not isinstance(payload, dict) or payload.get('format') != 'yuki-memory' or payload.get('version') not in (1, 2, 3)
                 or set(payload) != {'format', 'version', 'active_run_id', 'tables', 'histories'}
-                or not isinstance(payload['tables'], dict) or set(payload['tables']) != set(TABLES if payload['version'] == 2 else LEGACY_TABLES)
+                or not isinstance(payload['tables'], dict) or set(payload['tables']) != set({1:LEGACY_TABLES,2:V2_TABLES,3:TABLES}[payload['version']])
                 or not isinstance(payload['histories'], dict)):
             raise ValueError('备份格式不受支持。')
         if payload['version'] == 1:
@@ -156,6 +161,10 @@ class MemoryService:
                 row.setdefault('turn_cutoff', 0)
             for row in payload['tables']['story_turns']:
                 row.setdefault('note_generation', 0)
+        if payload['version'] < 3:
+            payload['tables']['character_corrections'] = []
+            for row in payload['tables']['branches']:
+                row.setdefault('character_cutoff', 0)
         if sum(len(rows) if isinstance(rows, list) else 1000001 for rows in payload['tables'].values()) > 1000000:
             raise ValueError('备份记录过多。')
         for uid, rows in payload['histories'].items():
@@ -209,7 +218,7 @@ class MemoryService:
                         count, first, last = db.execute('SELECT COUNT(*),MIN(position),MAX(position) FROM events WHERE branch_id=?', (child['id'],)).fetchone()
                         if count and (first != child['fork_position'] + 1 or last - first + 1 != count):
                             raise ValueError('备份的正文不连续。')
-                    for table in ('events', 'bookmarks', 'story_turns', 'progress_checks', 'reading_notes'):
+                    for table in ('events', 'bookmarks', 'story_turns', 'progress_checks', 'reading_notes', 'character_corrections'):
                         for row in db.execute(f'SELECT * FROM {table} WHERE run_id=?', (run['id'],)):
                             store._branch(db, run['id'], row['branch_id'])
                     for turn in db.execute('SELECT * FROM story_turns WHERE run_id=?', (run['id'],)):
@@ -241,6 +250,28 @@ class MemoryService:
                             raise ValueError('备份的讨论来源无效。')
                 if db.execute('SELECT note_id FROM reading_notes GROUP BY note_id HAVING COUNT(DISTINCT run_id)>1').fetchone():
                     raise ValueError('备份的手记跨越了不同共读。')
+                for rule in db.execute('SELECT * FROM character_corrections'):
+                    if (not re.fullmatch(r'[a-f0-9]{32}', rule['correction_id']) or rule['kind'] not in ('alias','pronoun')
+                            or not valid_character_name(rule['label']) or not valid_character_name(rule['target'])
+                            or (rule['kind']=='pronoun' and rule['label'] not in ('她','他'))
+                            or rule['target'] in ('她','他','它','我','你','我们','他们','她们','旁白','叙述','未知','其他')
+                            or (rule['kind']=='alias' and (rule['label']==rule['target'] or rule['label'] in ('她','他','它','我','你','他们','她们')))):
+                        raise ValueError('备份的人物纠正无效。')
+                    branch=store._branch(db,rule['run_id'],rule['branch_id'])
+                    if not branch['fork_position'] <= rule['position'] <= store._tip(db,branch):
+                        raise ValueError('备份的人物纠正超出已读进度。')
+                    scope,args=store._scope(store._segments(db,rule['run_id'],rule['branch_id'],rule['position']))
+                    available={row['id']:dict(row) for row in db.execute('SELECT * FROM events WHERE run_id=? AND '+scope,[rule['run_id'],*args])}
+                    ids=json.loads(rule['evidence_ids'])
+                    if not isinstance(ids,list) or not 1<=len(ids)<=3 or any(type(event_id)is not int or event_id not in available for event_id in ids) or rule['anchor_event_id'] not in available:
+                        raise ValueError('备份的人物纠正引用无效。')
+                    if rule['kind']=='alias' and available[rule['anchor_event_id']]['position']!=rule['position']:
+                        raise ValueError('备份的称呼起点无效。')
+                    mentions=lambda word:any(word in ((available[event_id]['speaker'] or '')+' '+available[event_id]['text']) for event_id in ids)
+                    if not mentions(rule['target']) or (rule['kind']=='alias' and not mentions(rule['label'])):
+                        raise ValueError('备份的人物名称缺少关联原文。')
+                if db.execute('SELECT correction_id FROM character_corrections GROUP BY correction_id HAVING COUNT(DISTINCT run_id)>1 OR COUNT(DISTINCT kind)>1 OR COUNT(DISTINCT label)>1').fetchone():
+                    raise ValueError('备份的人物纠正版本不一致。')
 
     def load_backup(self, uid):
         manifest = self._manifest(uid)
@@ -258,8 +289,10 @@ class MemoryService:
             tables = payload['tables']
             counts = {'runs': len(tables['runs']), 'events': len(tables['events']),
                       'discussions': len(tables['story_turns']), 'histories': len(payload['histories'])}
-            if manifest['version'] == 2:
+            if manifest['version'] >= 2:
                 counts['notes'] = len({row['note_id'] for row in tables['reading_notes']})
+            if manifest['version'] >= 3:
+                counts['corrections'] = len({row['correction_id'] for row in tables['character_corrections']})
             if counts != manifest['counts']:
                 raise ValueError('备份数量不匹配。')
         except Exception:
@@ -274,6 +307,7 @@ class MemoryService:
         mappings = {table: {row['id']: uuid4().hex for row in tables[table]} for table in ('games', 'runs', 'branches', 'bookmarks')}
         event_ids, note_versions = {}, {}
         turn_ids, note_ids = {}, {row['note_id']: uuid4().hex for row in tables['reading_notes']}
+        correction_versions, correction_ids = {}, {row['correction_id']:uuid4().hex for row in tables['character_corrections']}
         try:
             with self.story.connection(True) as db:
                 self.story._check(db, expected)
@@ -297,12 +331,15 @@ class MemoryService:
                         if table == 'runs':
                             row['name'] = row['name'][:48] + '（恢复副本）'
                             row['created_at'] = timestamp()
-                        if table in ('story_turns', 'reading_notes'):
+                        if table in ('story_turns', 'reading_notes', 'character_corrections'):
                             row['evidence_ids'] = json.dumps([event_ids[event_id] for event_id in json.loads(row['evidence_ids'])])
                         if table == 'reading_notes':
                             row['note_id'] = note_ids[row['note_id']]
                             if row['origin_turn_id'] is not None:
                                 row['origin_turn_id'] = turn_ids[row['origin_turn_id']]
+                        if table=='character_corrections':
+                            row['correction_id']=correction_ids[row['correction_id']]
+                            row['anchor_event_id']=event_ids[row['anchor_event_id']]
                         cursor = db.execute(f'INSERT INTO {table} ({",".join(row)}) VALUES ({",".join("?" for _ in row)})', list(row.values()))
                         if table == 'events':
                             event_ids[original['id']] = cursor.lastrowid
@@ -310,8 +347,10 @@ class MemoryService:
                             turn_ids[original['id']] = cursor.lastrowid
                         elif table == 'reading_notes':
                             note_versions[original['id']] = cursor.lastrowid
+                        elif table == 'character_corrections':
+                            correction_versions[original['id']] = cursor.lastrowid
                 for branch in tables['branches']:
-                    for column, remapped in (('note_cutoff', note_versions), ('turn_cutoff', turn_ids)):
+                    for column, remapped in (('note_cutoff', note_versions), ('turn_cutoff', turn_ids), ('character_cutoff',correction_versions)):
                         cutoff = max((new_id for old_id, new_id in remapped.items() if old_id <= branch[column]), default=0)
                         db.execute(f'UPDATE branches SET {column}=? WHERE id=?', (cutoff, mappings['branches'][branch['id']]))
                 for rows in payload['histories'].values():
@@ -339,7 +378,7 @@ class MemoryService:
             revision = item['revision']
             description = (f'清空《{item["title"]}》·{item["name"]} 的全部 {item["story_turns"]} 轮讨论（含旧讨论和其他路线）。原文、手记、书签和进度保留。'
                 if action == 'clear_discussion' else
-                f'删除《{item["title"]}》·{item["name"]}：{item["events"]} 句原文、{item["branches"]} 条路线、{item["bookmarks"]} 个书签、{item["story_turns"]} 轮讨论、{item["notes"]} 条手记及阅读回顾。其他共读和已有备份保留。')
+                f'删除《{item["title"]}》·{item["name"]}：{item["events"]} 句原文、{item["branches"]} 条路线、{item["bookmarks"]} 个书签、{item["story_turns"]} 轮讨论、{item["notes"]} 条手记、{item["corrections"]} 条人物纠正及阅读回顾。其他共读和已有备份保留。')
         elif action == 'delete_history':
             revision = self.history.revision(uid)
             description = '删除这篇普通聊天的全部内容。共读原文和已有备份保留。'
@@ -347,7 +386,7 @@ class MemoryService:
             _, manifest = self.load_backup(uid)
             revision = manifest['sha256']
             counts = manifest['counts']
-            description = f'恢复为独立副本：{counts["runs"]} 篇共读、{counts["events"]} 句原文、{counts["histories"]} 篇普通聊天、{counts.get("notes",0)} 条手记。现有记录保留；切换到备份中正在读的副本，取词会暂停。'
+            description = f'恢复为独立副本：{counts["runs"]} 篇共读、{counts["events"]} 句原文、{counts["histories"]} 篇普通聊天、{counts.get("notes",0)} 条手记、{counts.get("corrections",0)} 条人物纠正。现有记录保留；切换到备份中正在读的副本，取词会暂停。'
         elif action == 'delete_backup':
             folder = self._folder(uid)
             revision = self._backup_revision(folder)
