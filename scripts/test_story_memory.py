@@ -249,6 +249,18 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(progress['verdict'], 'looking_back')
         self.assertIn(str(snapshot.focus_position), progress['detail'])
 
+    def test_pronoun_opens_the_latest_speaker_when_the_current_scene_has_none(self):
+        lines = ['美咲：我不会再理你了。', '旁白：她把信留在桌上。', '旁白：第二天，操场起了风。']
+        lines += [f'旁白：风声又响了第{i}遍。' for i in range(4, 16)]
+        self.ingest('\n'.join(lines))
+        snapshot = self.store.snapshot('她为什么突然冷淡', self.store.epoch())
+        texts = [event['text'] for event in snapshot.events]
+        self.assertEqual(snapshot.referent, '美咲')
+        self.assertFalse(snapshot.referent_ambiguous)
+        self.assertTrue(any('不会再理你' in text for text in texts))
+        named = self.store.snapshot('小春为什么离开', self.store.epoch())
+        self.assertEqual(named.referent, '')
+
     def test_story_reply_json_can_be_recovered(self):
         raw = '先说结论。\n{"text":"柜台上温着酒。","emotion":"serious","answer_type":"chat","evidence_ids":[]}\n'
         data = TextChat.load_json_object(raw)

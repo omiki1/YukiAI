@@ -34,6 +34,8 @@ class ReadingSnapshot:
     characters: tuple = ()
     mode: str = 'galgame'
     focus_position: int = 0
+    referent: str = ''
+    referent_ambiguous: bool = False
 
 
 # Derived only from events already inside the current route prefix. No model call.
@@ -390,13 +392,43 @@ def present_memory(events):
     return {'scenes': shown, 'characters': characters, 'reading': reading}
 
 
-def choose_characters(people, question, working):
+def has_pronoun(question):
+    return any(token in (question or '').replace('其他', '') for token in ('她', '他'))
+
+
+def resolve_pronoun(question, scenes, people):
+    """她/他 points at the latest scene that has one clear speaker. Names in the question win."""
+    if any(name and name in (question or '') for name in people):
+        return '', False
+    if any(alias and alias in (question or '') for person in people.values() for alias in person['aliases']):
+        return '', False
+    if not has_pronoun(question):
+        return '', False
+    for scene in reversed(scenes):
+        speakers = []
+        last = ''
+        for event in scene:
+            if event.get('speaker') and event['speaker'] not in speakers:
+                speakers.append(event['speaker'])
+            if event.get('speaker'):
+                last = event['speaker']
+        if not speakers:
+            continue
+        if len(speakers) == 1:
+            return speakers[0], False
+        return last, True
+    return '', False
+
+
+def choose_characters(people, question, working, referent=''):
     selected = []
 
     def add(name):
         if name in people and name not in selected:
             selected.append(name)
 
+    if referent:
+        add(referent)
     for name, person in people.items():
         if name and name in question:
             add(name)
@@ -419,7 +451,7 @@ def choose_characters(people, question, working):
     return [people[name] for name in ordered[:4]]
 
 
-def choose_blocks(scenes, terms, names, explicit):
+def choose_blocks(scenes, terms, names, explicit, referent=''):
     """Open whole plot blocks. Scattered lines lose the exchange around them."""
     if not scenes:
         return []
@@ -437,6 +469,14 @@ def choose_blocks(scenes, terms, names, explicit):
     add(previous)
     add(current)
     opened = 0
+    if referent:
+        for scene in reversed(scenes):
+            if not scene or scene is current or scene in loaded:
+                continue
+            if any(event.get('speaker') == referent for event in scene):
+                add(scene)
+                opened += 1
+                break
     ranked = sorted((scene for scene in scenes if scene not in loaded),
                     key=lambda scene: (block_score(scene, terms, names), scene[-1]['position']), reverse=True)
     best = block_score(ranked[0], terms, names) if ranked else 0
@@ -512,7 +552,9 @@ def pack_story_context(snapshot, question=''):
                         'at_choice': bool(current and current.get('at_choice')),
                         'present_speakers': list(current.get('speakers') or []) if current else [],
                         'confirmed_position': snapshot.position,
-                        'asked_about': getattr(snapshot, 'focus_position', None) or snapshot.position},
+                        'asked_about': getattr(snapshot, 'focus_position', None) or snapshot.position,
+                        'referent': getattr(snapshot, 'referent', '') or '',
+                        'referent_ambiguous': bool(getattr(snapshot, 'referent_ambiguous', False))},
             'loaded_blocks': blocks, 'scenes': catalog, 'characters': characters,
             'route_discussion': [{'speaker': 'player' if item['role'] == 'human' else 'Yuki',
                                   'text': focus_text(item.get('content') or '', terms, DISCUSSION_CLIP)}
@@ -926,11 +968,12 @@ class StoryStore:
             current = scenes[-1] if scenes else ()
             nearby = scenes[-2] if len(scenes) > 1 and current and len(current) < WORKING_SCENE_SHORT else ()
             # Names in the question point at a block; the block, not one matching line, is what gets opened.
-            selected_people = choose_characters(people, question, tuple(nearby) + tuple(current))
+            referent, referent_ambiguous = resolve_pronoun(question, scenes, people)
+            selected_people = choose_characters(people, question, tuple(nearby) + tuple(current), referent)
             focus_names = tuple(person['name'] for person in selected_people
-                                if person['name'] in question or any(alias in question for alias in person['aliases']))
+                                if person['name'] in question or any(alias in question for alias in person['aliases']) or person['name'] == referent)
             explicit = set(re.findall(r'第\s*(\d+)\s*[句条段]', question or ''))
-            chosen_blocks = choose_blocks(scenes, terms, focus_names, explicit)
+            chosen_blocks = choose_blocks(scenes, terms, focus_names, explicit, referent)
             # The passage the question names is loaded first. The confirmed tip stays a short anchor.
             focus_scene = current
             if chosen_blocks:
@@ -987,7 +1030,7 @@ class StoryStore:
                 focus_position = ranked_lines[0]['position'] if ranked_lines and event_score(ranked_lines[0], terms, focus_names) else run['position']
             return ReadingSnapshot(state['epoch'], run['id'], run['branch_id'], run['position'], run['chat_generation'],
                                    run['title'], tuple(sorted(chosen, key=lambda event: event['position'])), tuple(reversed(messages)),
-                                   tuple(cards), tuple(characters), run['mode'] or 'galgame', focus_position)
+                                   tuple(cards), tuple(characters), run['mode'] or 'galgame', focus_position, referent, referent_ambiguous)
 
     def matches(self, snapshot):
         with self.connection() as db:
