@@ -53,6 +53,7 @@
 /docs/*
 !/docs/PUBLISHING.md
 !/docs/SYSTEM.md
+!/docs/WORKLOG.md
 !/third_party/
 /third_party/*
 !/third_party/README.md
