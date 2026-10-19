@@ -10,6 +10,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from scripts.yuki_chat import TextChat, ground_story_answer
+from scripts.yuki_story import pack_story_context
 from scripts.yuki_config import ConfigStore
 from scripts.yuki_server import create_app
 from scripts.yuki_story import StoryStore, StoryConflict
@@ -186,9 +187,13 @@ class StoreTests(unittest.TestCase):
         earlier = self.store.snapshot('旧图书馆的灯', self.store.epoch())
         found = [event['position'] for event in earlier.events]
         self.assertIn(1, found)
-        self.assertIn(20, found)
+        self.assertNotIn(20, found)
         self.assertIn(80, found)
         self.assertNotIn(50, found)
+        self.assertLessEqual(len(found), 16)
+        library = next(scene for scene in earlier.scenes if scene['loaded'] and scene['role'] != 'current')
+        self.assertGreater(library['lines'], library['shown'])
+        self.assertLessEqual(library['shown'], 6)
         self.assertNotIn('食堂', json.dumps([event['text'] for event in earlier.events], ensure_ascii=False))
         self.assertTrue(any(scene['loaded'] and '旧图书馆' in scene['summary'] for scene in earlier.scenes))
         self.assertTrue(any(not scene['loaded'] and '食堂' in scene['summary'] for scene in earlier.scenes))
@@ -199,6 +204,21 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(current['loaded'])
         self.assertTrue(current['at_choice'])
         self.assertEqual(current['end'], 2)
+
+    def test_long_lines_stay_in_evidence_and_are_clipped_for_the_model(self):
+        keyword_at = 900
+        line = '甲' * keyword_at + '旧图书馆的灯' + '乙' * 900
+        self.ingest('旁白：' + line + '\n旁白：操场起了风。')
+        snapshot = self.store.snapshot('旧图书馆的灯', self.store.epoch())
+        full = next(event['text'] for event in snapshot.events if '旧图书馆' in event['text'])
+        self.assertGreater(len(full), 1600)
+        packed = pack_story_context(snapshot, '旧图书馆的灯')
+        serialized = json.dumps(packed, ensure_ascii=False)
+        self.assertIn('旧图书馆的灯', serialized)
+        self.assertNotIn('甲' * 80, serialized)
+        self.assertLess(len(serialized), 5000)
+        opened = [line for block in packed['loaded_blocks'] for line in block['lines']]
+        self.assertTrue(all(len(item['text']) <= 161 for item in opened))
 
     def test_short_new_scene_still_includes_the_scene_just_finished(self):
         lines = ['旁白：旧图书馆的灯一直亮着。'] + [f'旁白：第{i}页笔记。' for i in range(2, 11)]
