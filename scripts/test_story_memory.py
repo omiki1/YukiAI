@@ -198,6 +198,21 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(any(scene['loaded'] and '旧图书馆' in scene['summary'] for scene in earlier.scenes))
         self.assertTrue(any(not scene['loaded'] and '食堂' in scene['summary'] for scene in earlier.scenes))
 
+    def test_long_current_scene_opens_the_named_line_and_keeps_the_tail(self):
+        lines = ['旁白：天色已经暗下来。']
+        lines += [f'美咲：这是第{i}句无关闲聊。' for i in range(2, 16)]
+        lines.append('美咲：旧图书馆的灯还亮着，我刚才去看过。')
+        lines += [f'美咲：接着闲聊第{i}句。' for i in range(17, 41)]
+        self.ingest('\n'.join(lines))
+        snapshot = self.store.snapshot('旧图书馆的灯还亮着吗', self.store.epoch())
+        positions = [event['position'] for event in snapshot.events]
+        self.assertIn(16, positions)
+        self.assertIn(40, positions)
+        self.assertNotIn(8, positions)
+        packed = json.dumps(pack_story_context(snapshot, '旧图书馆的灯还亮着吗'), ensure_ascii=False)
+        self.assertIn('旧图书馆', packed)
+        self.assertLess(len(packed), 5000)
+
     def test_choice_is_part_of_the_current_block(self):
         self.ingest('旁白：走廊尽头有两扇门。\nA. 推开左边')
         current = next(scene for scene in self.store.snapshot('怎么选', self.store.epoch()).scenes if scene['role'] == 'current')

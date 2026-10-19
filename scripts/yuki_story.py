@@ -185,6 +185,14 @@ def focus_text(text, terms, limit=PROMPT_LINE):
     return body
 
 
+def hit_indexes(scene, terms, names, explicit):
+    ranked = sorted(range(len(scene)), key=lambda index: (
+        event_score(scene[index], terms, names) + (8 if str(scene[index]['position']) in explicit else 0),
+        scene[index]['position']), reverse=True)
+    return [index for index in ranked
+            if event_score(scene[index], terms, names) > 0 or str(scene[index]['position']) in explicit][:2]
+
+
 def span_indexes(scene, terms, names, explicit, role):
     count = len(scene)
     if not count:
@@ -197,12 +205,11 @@ def span_indexes(scene, terms, names, explicit, role):
             if event['kind'] == 'narration' and (event.get('text') or '').strip():
                 indexes.add(index)
                 break
+        # A long scene still has to open the line the question names, not only its ending.
+        for hit in hit_indexes(scene, terms, names, explicit):
+            indexes.update(range(max(0, hit - SPAN_RADIUS), min(count, hit + SPAN_RADIUS + 1)))
         return sorted(indexes)
-    ranked = sorted(range(count), key=lambda index: (
-        event_score(scene[index], terms, names) + (8 if str(scene[index]['position']) in explicit else 0),
-        scene[index]['position']), reverse=True)
-    hits = [index for index in ranked
-            if event_score(scene[index], terms, names) > 0 or str(scene[index]['position']) in explicit][:2]
+    hits = hit_indexes(scene, terms, names, explicit)
     if not hits and role == 'previous':
         hits = [count - 1]
     indexes = set()
@@ -307,9 +314,9 @@ def ui_line(event):
 def present_memory(events):
     """Short, route-local memory for the reading panel. Claims stay separate from narration."""
     characters = []
-    for person in build_characters(events).values():
-        if not person['claims'] and not person['witnessed']:
-            continue
+    people = [person for person in build_characters(events).values() if person['claims'] or person['witnessed']]
+    people.sort(key=lambda person: max(line['position'] for line in person['claims'] + person['witnessed']), reverse=True)
+    for person in people:
         characters.append({'name': person['name'], 'aliases': person['aliases'][:3],
                            'claims': [ui_line(event) for event in person['claims'][-2:]],
                            'witnessed': [ui_line(event) for event in person['witnessed'][-2:]]})
@@ -392,11 +399,10 @@ def take_span(scene, role, terms, names, explicit, chosen, used, budget):
     if not pending:
         return budget, False
     if sum(clipped_cost(event) for event in pending) > budget and len(pending) > 1:
-        hits = [event for event in pending if event_score(event, terms, names) > 0 or str(event['position']) in explicit]
+        scored = [event for event in pending if event_score(event, terms, names) > 0 or str(event['position']) in explicit]
         setting = next((event for event in pending if event['kind'] == 'narration'), None)
-        if role == 'current':
-            hits = pending[-min(4, len(pending)):]
-        narrowed = [event for event in pending if event in hits or event is setting]
+        tail = pending[-min(4, len(pending)):] if role == 'current' else []
+        narrowed = [event for event in pending if event in scored or event in tail or event is setting]
         pending = narrowed or pending[:1]
     kept = False
     for event in pending:
