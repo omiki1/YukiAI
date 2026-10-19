@@ -52,6 +52,7 @@
 !/docs/
 /docs/*
 !/docs/PUBLISHING.md
+!/docs/SYSTEM.md
 !/third_party/
 /third_party/*
 !/third_party/README.md
