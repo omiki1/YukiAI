@@ -25,6 +25,22 @@ def clean_text(text):
     return re.sub(r'\s+', ' ', text).strip()
 
 
+# Whole line is an interface label, not a sentence that merely mentions one.
+MENU_LINES = {
+    '保存', '读取', '读档', '载入', '存档', '设定', '设置', '选项', '返回', '标题', '退出', '系统',
+    '自动', '跳过', '快进', '回想', '快捷保存', '快捷读取', 'save', 'load', 'config', 'auto', 'skip',
+    'log', 'q.save', 'q.load', 'quicksave', 'quickload', 'start', 'continue',
+}
+
+
+def is_interface_line(text):
+    compact = re.sub(r'[\s　]+', '', text or '')
+    bare = compact.strip('【】[]（）()「」').lower()
+    if bare in MENU_LINES or compact.lower() in MENU_LINES:
+        return True
+    return bool(re.fullmatch(r'[0-9]{1,4}|[Ff]\d{1,2}|[>＞»]{1,4}', (text or '').strip()))
+
+
 def game_processes():
     if os.name != 'nt':
         return []
@@ -351,6 +367,12 @@ class CaptureService:
         self.channels[item['id']] = {'id': item['id'], 'name': item['name'], 'code': item['code'],
                                       'text': clean[:2000]}
         self.check_scope()
+        if is_interface_line(clean):
+            if self.recording and item['id'] == self.selected and item['received'] >= self.started:
+                if self.pending:
+                    self._save_pending()
+                self.message = '跳过了一条菜单或界面文字，没有写入正文。'
+            return
         if not self.recording or item['id'] != self.selected or item['received'] < self.started:
             return
         if len(clean) > 2000 or len(item['raw']) > 8000:

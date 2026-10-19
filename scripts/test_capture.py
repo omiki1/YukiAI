@@ -7,7 +7,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from scripts.yuki_capture import CaptureService, clean_text
+from scripts.yuki_capture import CaptureService, clean_text, is_interface_line
 from scripts.yuki_config import ConfigStore
 from scripts.yuki_server import create_app
 from scripts.yuki_story import StoryStore, StoryConflict
@@ -112,6 +112,40 @@ class CaptureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.events()[0]['text'],'这句正文应该完整保留。')
         self.assertNotIn('hook message',self.events()[0]['raw_text'])
         self.assertEqual(len(self.capture.channels),2)
+
+    async def test_hundred_lines_skip_menus_and_confirm_rewind(self):
+        self.assertTrue(is_interface_line('【保存】'))
+        self.assertTrue(is_interface_line('Q.SAVE'))
+        self.assertFalse(is_interface_line('美咲：我们先保存这封信。'))
+        self.start()
+        story = []
+        for number in range(1, 81):
+            if number % 17 == 0:
+                story.append(f'旁白：走廊里的第{number}盏灯还亮着。')
+            else:
+                story.append(f'美咲：这是正文第{number}句，我们还在等雨。')
+        menus = ['保存', '读取', 'LOAD', '【设定】', 'F5', '12', '跳过', '标题', 'Config', '快进']
+        offset = 1
+        for index, line in enumerate(story):
+            self.emit(line, offset)
+            offset += 1
+            if index % 8 == 7:
+                self.emit(menus[(index // 8) % len(menus)], offset)
+                offset += 1
+        state = self.store.view()['active']
+        self.assertEqual(state['position'], 80)
+        texts = [event['text'] for event in state['events']]
+        self.assertEqual(len(texts), 50)
+        self.assertTrue(any('正文第80句' in text for text in texts))
+        self.assertFalse(any(text in ('保存', '读取', '设定', '跳过', '标题', '快进', 'LOAD', 'Config', 'F5', '12') for text in texts))
+        self.assertIn('正文第1句', self.store.snapshot('正文第1句', self.store.epoch()).events[0]['text'])
+        self.assertIn('跳过了一条菜单', self.capture.message)
+        position = self.store.view()['active']['position']
+        self.emit(story[0], offset)
+        self.emit(story[1], offset + 1)
+        self.assertFalse(self.capture.recording)
+        self.assertEqual(self.store.view()['active']['position'], position)
+        self.assertIn('书签', self.capture.message)
 
     async def test_duplicate_repaints_and_legitimate_repeated_dialogue(self):
         self.start()
