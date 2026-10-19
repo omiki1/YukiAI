@@ -13,7 +13,7 @@ const greeting='读到哪儿了？我陪你一起看。';
 let host:any=null,session='',turns:Turn[]=[],pending=false,typing:any=null,relax:any=null,fullText='';
 let loadTask:Promise<void>|null=null;
 let voiceEnabled=false,previewMode=false;
-let classicTurns:Turn[]=[],conversationGeneration=0,readingInitialized=false,currentRequest:AbortController|null=null,currentEvidence:StoryEvidence[]=[];
+let classicTurns:Turn[]=[],conversationGeneration=0,readingInitialized=false,currentRequest:AbortController|null=null,currentEvidence:StoryEvidence[]=[],replyKind='';
 const speech=new SpeechPlayer(busy=>{$('voice-stop').hidden=!busy;$('settings-voice-stop').hidden=!busy;});
 const settings=new SettingsPanel(avatar,speech,data=>{voiceEnabled=data.voice.enabled&&!previewMode;if(!voiceEnabled)speech.stop();});
 const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');});
@@ -39,16 +39,17 @@ function syncReading(state:any,boundary:boolean){
 function hint(text:string,error=false){$('hint').textContent=text;$('hint').title=text;$('hint').classList.toggle('error',error);$('hint').classList.toggle('busy',pending&&!error);}
 function stopTyping(){if(typing)clearTimeout(typing);typing=null;}
 function settle(){clearTimeout(relax);relax=setTimeout(()=>avatar.setExpression('neutral'),2800);}
-function reveal(){stopTyping();$('reply').textContent=fullText;measureReply();hint('可以继续和我说。');settle();}
-function write(text:string,emotion='neutral'){
- stopTyping();clearTimeout(relax);resetBubble();fullText=text;$('reply').textContent='';avatar.setExpression(emotion);
+function replyHint(){if(replyKind==='uncertain')return '这句我没把握，只按已读到的说。';if(replyKind==='analysis')return '按你这条路线里读到的剧情说的。';return '可以继续和我说。';}
+function reveal(){stopTyping();$('reply').textContent=fullText;measureReply();hint(replyHint());settle();}
+function write(text:string,emotion='neutral',kind=''){
+ stopTyping();clearTimeout(relax);resetBubble();replyKind=kind;fullText=text;$('reply').textContent='';avatar.setExpression(emotion);
  const chars=Array.from(text);let i=0;
- const step=()=>{if(i>=chars.length){typing=null;measureReply();hint('可以继续和我说。');settle();return;}
+ const step=()=>{if(i>=chars.length){typing=null;measureReply();hint(replyHint());settle();return;}
   const c=chars[i++];$('reply').textContent+=c;$('line').scrollTop=$('line').scrollHeight;typing=setTimeout(step,/[。！？…]/.test(c)?130:30);};
  if(matchMedia('(prefers-reduced-motion:reduce)').matches)reveal();else step();
 }
 function memories(){const root=$('history-lines');root.replaceChildren();if(!turns.length){const p=document.createElement('p');p.className='memory-empty';p.textContent='这一篇，还没有写下对话。';root.append(p);}
- for(const t of turns){const div=document.createElement('div');div.className='memory '+(t.role==='human'?'user':'');const name=document.createElement('strong');name.textContent=t.role==='human'?'你':'Yuki';div.append(name,document.createTextNode(t.content));if(t.evidence?.length){const button=document.createElement('button');button.className='memory-evidence';button.textContent='查看原文依据';button.onclick=()=>story.showEvidence(t.evidence);div.append(button);}root.append(div);}root.scrollTop=root.scrollHeight;
+ for(const t of turns){const div=document.createElement('div');div.className='memory '+(t.role==='human'?'user':'');const name=document.createElement('strong');name.textContent=t.role==='human'?'你':'Yuki';div.append(name,document.createTextNode(t.content));if(t.answer_type==='uncertain'){const note=document.createElement('span');note.className='memory-note';note.textContent='没把握';div.append(note);}if(t.evidence?.length){const button=document.createElement('button');button.className='memory-evidence';button.textContent='查看原文依据';button.onclick=()=>story.showEvidence(t.evidence);div.append(button);}root.append(div);}root.scrollTop=root.scrollHeight;
 }
 async function newSession(force=false){if(pending&&!force)return;if(story.active){await story.newChat();return;}speech.stop();const data=await api('sessions',{});session=data.session_id;turns=[];classicTurns=turns;localStorage.setItem('yuki.session',session);stopTyping();clearTimeout(relax);avatar.setExpression('neutral');resetBubble();$('reply').textContent=greeting;fullText=greeting;setEvidence();hint('一起看剧情，慢慢聊 · 默认不剧透');memories();requestAnimationFrame(measureReply);}
 async function initialize(){
@@ -79,7 +80,7 @@ $('composer').addEventListener('submit',async event=>{
  try{if(loadTask)await loadTask;if(generation!==conversationGeneration)return;const epoch=story.epoch;
   const result=await api('chat',{text,session_id:session,story_epoch:epoch},controller.signal);
   if(generation!==conversationGeneration||result.story_epoch!==undefined&&result.story_epoch!==story.epoch)return;
-  turns.push({role:'human',content:text},{role:'ai',content:result.text,emotion:result.emotion,evidence:result.evidence,answer_type:result.answer_type});if(input.value.trim()===text){input.value='';setComposer(false);}setEvidence(result.evidence);write(result.text,result.emotion);memories();
+  turns.push({role:'human',content:text},{role:'ai',content:result.text,emotion:result.emotion,evidence:result.evidence,answer_type:result.answer_type});if(input.value.trim()===text){input.value='';setComposer(false);}setEvidence(result.evidence);write(result.text,result.emotion,result.answer_type||'');memories();
   if(!$('dialogue-restore').hidden)$('dialogue-restore').textContent='◇ Yuki · 有新回复';
   if(voiceEnabled){if(result.text.length<=1200)speech.play('speech',{text:result.text,story_epoch:epoch}).catch(e=>{if(generation===conversationGeneration)hint(e.message,true);});else hint('这段回复较长，保留文字阅读。');}
  }catch(e){if(generation===conversationGeneration&&e.name!=='AbortError'){hint(e.message,true);if(!document.querySelector<HTMLElement>('.dialogue').hidden&&$('story-panel').hidden&&$('settings').hidden)setComposer(true);story.load().catch(()=>{});}}

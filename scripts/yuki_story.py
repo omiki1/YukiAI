@@ -37,7 +37,8 @@ class ReadingSnapshot:
 # Derived only from events already inside the current route prefix. No model call.
 SCENE_EVENT_LIMIT = 40
 WORKING_SCENE_SHORT = 8
-RAW_EVENT_LIMIT = 56
+EARLIER_BLOCK_LIMIT = 2
+RAW_EVENT_LIMIT = 120
 RAW_BUDGET = 12000
 MESSAGE_BUDGET = 6000
 STOPWORDS = {'什么', '我们', '剧情', '之前', '刚才', '觉得', '可以', '现在', '怎么', '一下', '记得'}
@@ -133,9 +134,22 @@ def scene_summary(events):
     return '。'.join(bits)
 
 
-def scene_card(events):
+def scene_card(events, loaded=False, role='closed'):
     return {'start': events[0]['position'], 'end': events[-1]['position'], 'speakers': scene_speakers(events),
-            'summary': scene_summary(events), 'lines': len(events)}
+            'summary': scene_summary(events), 'lines': len(events), 'loaded': loaded, 'role': role,
+            'at_choice': events[-1]['kind'] == 'choice'}
+
+
+def block_score(scene, terms, names=()):
+    scores = [event_score(event, terms, names) for event in scene]
+    if not scores or max(scores) <= 0:
+        return 0
+    # One strong line can open a block; repeated mentions still matter.
+    return max(scores) * 3 + sum(scores)
+
+
+def block_chars(scene):
+    return sum(len(event.get('raw_text') or '') + 80 for event in scene)
 
 
 def build_characters(events):
@@ -222,7 +236,17 @@ def present_memory(events):
         if len(characters) == 12:
             break
     scenes = segment_scenes(events)
-    return {'scenes': [scene_card(scene) for scene in scenes[-4:]], 'characters': characters}
+    shown = []
+    for scene in scenes[-4:]:
+        card = scene_card(scene)
+        card['current'] = scene is scenes[-1]
+        shown.append(card)
+    reading = None
+    if scenes:
+        current = scenes[-1]
+        reading = {'start': current[0]['position'], 'end': current[-1]['position'],
+                   'at_choice': current[-1]['kind'] == 'choice', 'speakers': scene_speakers(current)}
+    return {'scenes': shown, 'characters': characters, 'reading': reading}
 
 
 def choose_characters(people, question, working):
@@ -254,30 +278,47 @@ def choose_characters(people, question, working):
     return [people[name] for name in ordered[:4]]
 
 
-def prompt_scenes(scenes, selected_people, terms):
+def choose_blocks(scenes, terms, names, explicit):
+    """Open whole plot blocks. Scattered lines lose the exchange around them."""
     if not scenes:
         return []
-    chosen = []
+    current = scenes[-1]
+    previous = scenes[-2] if len(scenes) > 1 and len(current) < WORKING_SCENE_SHORT else None
+    loaded = []
 
     def add(scene):
-        if scene not in chosen:
-            chosen.append(scene)
+        if scene is not None and scene not in loaded:
+            loaded.append(scene)
 
-    add(scenes[-1])
-    if len(scenes) > 1:
-        add(scenes[-2])
-    names = [person['name'] for person in selected_people]
-    names.extend(alias for person in selected_people for alias in person['aliases'])
-    scored = []
-    for scene in scenes[:-2]:
-        blob = scene_summary(scene) + ''.join((event.get('speaker') or '') + (event.get('text') or '') for event in scene)
-        score = sum(3 for name in names if name and name in blob) + sum(term in blob.lower() for term in terms)
-        if score:
-            scored.append((score, scene[-1]['position'], scene))
-    for _, _, scene in sorted(scored, reverse=True)[:3]:
+    for scene in scenes:
+        if any(str(event['position']) in explicit for event in scene):
+            add(scene)
+    add(previous)
+    add(current)
+    opened = 0
+    ranked = sorted((scene for scene in scenes if scene not in loaded),
+                    key=lambda scene: (block_score(scene, terms, names), scene[-1]['position']), reverse=True)
+    for scene in ranked:
+        if opened >= EARLIER_BLOCK_LIMIT or block_score(scene, terms, names) <= 0:
+            break
         add(scene)
-    chosen.sort(key=lambda scene: scene[0]['position'])
-    return [scene_card(scene) for scene in chosen[:5]]
+        opened += 1
+    return loaded
+
+
+def take_block(scene, chosen, used, budget, partial=False):
+    pending = [event for event in scene if event['id'] not in used]
+    if not pending:
+        return budget, True
+    if not partial:
+        if len(chosen) + len(pending) > RAW_EVENT_LIMIT or block_chars(pending) > budget:
+            return budget, False
+        for event in pending:
+            budget = accept_event(event, chosen, used, budget)
+        return budget, True
+    for event in reversed(pending):
+        budget = accept_event(event, chosen, used, budget)
+    return budget, True
 
 
 def accept_event(event, chosen, used, budget):
@@ -616,34 +657,42 @@ class StoryStore:
             scenes = segment_scenes(events)
             people = build_characters(events)
             terms = question_terms(question)
-            working = ()
-            if scenes:
-                current = scenes[-1]
-                previous = scenes[-2] if len(scenes) > 1 else ()
-                # A short tail should still see the scene that just ended. "刚才" carries no keywords.
-                working = previous + current if len(current) < WORKING_SCENE_SHORT else current
-            selected_people = choose_characters(people, question, working)
+            current = scenes[-1] if scenes else ()
+            nearby = scenes[-2] if len(scenes) > 1 and current and len(current) < WORKING_SCENE_SHORT else ()
+            # Names in the question point at a block; the block, not one matching line, is what gets opened.
+            selected_people = choose_characters(people, question, tuple(nearby) + tuple(current))
             focus_names = tuple(person['name'] for person in selected_people
                                 if person['name'] in question or any(alias in question for alias in person['aliases']))
             explicit = set(re.findall(r'第\s*(\d+)\s*[句条段]', question or ''))
-            working_ids = {event['id'] for event in working}
-            earlier = [event for event in events if event['id'] not in working_ids]
-            relevant = [event for event in sorted(earlier, key=lambda event: (event_score(event, terms, focus_names), event['position']), reverse=True)
-                        if event_score(event, terms, focus_names)][:12]
-            extra = []
-            for person in selected_people:
-                names = (person['name'], *person['aliases'])
-                ranked = sorted(person['claims'], key=lambda event: (event_score(event, terms, names), event['position']), reverse=True)
-                matched = [event for event in ranked if event_score(event, terms, names)]
-                extra.extend(matched[:2] if matched else person['claims'][-2:])
-                if person['witnessed']:
-                    extra.append(person['witnessed'][-1])
+            chosen_blocks = choose_blocks(scenes, terms, focus_names, explicit)
+            # The block being read is kept even when an older block is long. Older blocks are all or nothing.
+            ordered_blocks = [scene for scene in chosen_blocks if scene is current] + [scene for scene in chosen_blocks if scene is not current]
             chosen, used, budget = [], set(), RAW_BUDGET
-            pools = [[event for event in events if str(event['position']) in explicit], list(reversed(working)), extra, relevant]
-            for pool in pools:
-                for event in pool:
-                    budget = accept_event(event, chosen, used, budget)
+            opened = []
+            for scene in ordered_blocks:
+                budget, ok = take_block(scene, chosen, used, budget, partial=scene is current)
+                if ok:
+                    opened.append(scene)
             provided = {event['id'] for event in chosen}
+            # A block that did not fit stays closed. Do not leave a torn middle.
+            opened_ids = {id(scene) for scene in opened}
+            index = list(opened)
+            for scene in scenes:
+                if id(scene) not in opened_ids:
+                    index.append(scene)
+            closed_kept = [scene for scene in index if id(scene) not in opened_ids][-4:]
+            visible = opened + [scene for scene in closed_kept if scene not in opened]
+            cards = []
+            for scene in sorted(visible, key=lambda item: item[0]['position']):
+                role = 'opened'
+                if scene is current:
+                    role = 'current'
+                elif current and len(current) < WORKING_SCENE_SHORT and scenes and scene is scenes[-2]:
+                    role = 'previous'
+                loaded = id(scene) in opened_ids
+                if not loaded:
+                    role = 'closed'
+                cards.append(scene_card(scene, loaded, role))
             characters = []
             for person in selected_people:
                 names = (person['name'], *person['aliases'])
@@ -661,7 +710,7 @@ class StoryStore:
                 budget -= size
             return ReadingSnapshot(state['epoch'], run['id'], run['branch_id'], run['position'], run['chat_generation'],
                                    run['title'], tuple(sorted(chosen, key=lambda event: event['position'])), tuple(reversed(messages)),
-                                   tuple(prompt_scenes(scenes, selected_people, terms)), tuple(characters))
+                                   tuple(cards), tuple(characters))
 
     def matches(self, snapshot):
         with self.connection() as db:

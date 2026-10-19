@@ -168,21 +168,37 @@ class StoreTests(unittest.TestCase):
         bracket = self.store.parse('【美咲】昨晚我没有离开。')
         self.assertEqual((bracket[0]['speaker'], bracket[0]['kind'], bracket[0]['text']), ('美咲', 'dialogue', '昨晚我没有离开。'))
 
-    def test_recent_scene_keeps_its_lines_and_keyword_finds_an_earlier_scene(self):
-        lines = ['旁白：旧图书馆的灯一直亮着。'] + [f'旁白：走廊里只有第{i}盏灯。' for i in range(2, 51)]
+    def test_plot_blocks_open_whole_scenes_and_leave_unrelated_blocks_closed(self):
+        lines = ['旁白：旧图书馆的灯一直亮着。']
+        lines += [f'旁白：走廊里只有第{i}盏灯。' for i in range(2, 41)]
+        lines.append('旁白：第二天，食堂开始供应茶。')
+        lines += [f'旁白：食堂窗口第{i}号。' for i in range(42, 71)]
+        lines.append('旁白：与此同时，操场起了风。')
+        lines += [f'旁白：操场风声第{i}下。' for i in range(72, 81)]
         self.ingest('\n'.join(lines))
         recent = self.store.snapshot('刚才那段', self.store.epoch())
         positions = [event['position'] for event in recent.events]
-        self.assertIn(50, positions)
-        self.assertIn(41, positions)
+        self.assertIn(80, positions)
+        self.assertIn(71, positions)
         self.assertNotIn(1, positions)
-        self.assertGreaterEqual(len(positions), 10)
+        self.assertNotIn(50, positions)
+        self.assertTrue(all(scene['loaded'] for scene in recent.scenes if scene['role'] == 'current'))
         earlier = self.store.snapshot('旧图书馆的灯', self.store.epoch())
         found = [event['position'] for event in earlier.events]
         self.assertIn(1, found)
-        self.assertIn(50, found)
-        self.assertNotIn(20, found)
-        self.assertTrue(any('旧图书馆' in scene['summary'] for scene in earlier.scenes))
+        self.assertIn(20, found)
+        self.assertIn(80, found)
+        self.assertNotIn(50, found)
+        self.assertNotIn('食堂', json.dumps([event['text'] for event in earlier.events], ensure_ascii=False))
+        self.assertTrue(any(scene['loaded'] and '旧图书馆' in scene['summary'] for scene in earlier.scenes))
+        self.assertTrue(any(not scene['loaded'] and '食堂' in scene['summary'] for scene in earlier.scenes))
+
+    def test_choice_is_part_of_the_current_block(self):
+        self.ingest('旁白：走廊尽头有两扇门。\nA. 推开左边')
+        current = next(scene for scene in self.store.snapshot('怎么选', self.store.epoch()).scenes if scene['role'] == 'current')
+        self.assertTrue(current['loaded'])
+        self.assertTrue(current['at_choice'])
+        self.assertEqual(current['end'], 2)
 
     def test_short_new_scene_still_includes_the_scene_just_finished(self):
         lines = ['旁白：旧图书馆的灯一直亮着。'] + [f'旁白：第{i}页笔记。' for i in range(2, 11)]
@@ -407,6 +423,7 @@ class AsyncStoryTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('图书室', payloads[0]['messages'][0]['content'])
             material = payloads[0]['messages'][1]['content']
             self.assertIn('"scenes"', material)
+            self.assertIn('"loaded_blocks"', material)
             self.assertIn('"claims"', material)
             self.assertNotIn('旧钟楼', material)
             self.assertEqual(payloads[0]['messages'][1]['role'], 'user')
