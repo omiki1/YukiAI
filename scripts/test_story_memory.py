@@ -213,6 +213,26 @@ class StoreTests(unittest.TestCase):
         self.assertIn('旧图书馆', packed)
         self.assertLess(len(packed), 5000)
 
+    def test_novel_chapters_keep_unread_text_out_and_notice_speech(self):
+        self.store.create_run('短章', '试读', self.store.epoch(), 'novel')
+        self.ingest('第一章\n柜台上温着酒。\n孔乙己说道，“不多了，我已经不多了。”')
+        state = self.store.view()
+        self.assertEqual(state['active']['mode'], 'novel')
+        self.assertEqual(state['active']['branch_name'], '正文')
+        person = next(item for item in state['active']['memory']['characters'] if item['name'] == '孔乙己')
+        self.assertTrue(any('不多了' in claim['text'] for claim in person['claims']))
+        self.store.bookmark('第一章', self.store.epoch())
+        point = self.store.view()['active']['bookmarks'][0]['id']
+        self.ingest('第二章\n后来他的腿断了，这件事只写在这一章。')
+        self.store.restore(point, self.store.epoch())
+        snapshot = self.store.snapshot('后来他怎么样', self.store.epoch())
+        self.assertEqual(snapshot.mode, 'novel')
+        packed = json.dumps(pack_story_context(snapshot, '后来他怎么样'), ensure_ascii=False)
+        self.assertNotIn('腿断了', packed)
+        self.assertIn('温着酒', packed)
+        parsed = self.store.parse('第二章 咸亨')
+        self.assertEqual(parsed[0]['kind'], 'chapter')
+
     def test_choice_is_part_of_the_current_block(self):
         self.ingest('旁白：走廊尽头有两扇门。\nA. 推开左边')
         current = next(scene for scene in self.store.snapshot('怎么选', self.store.epoch()).scenes if scene['role'] == 'current')

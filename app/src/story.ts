@@ -10,7 +10,8 @@ export class StoryPanel{
   $('story-toggle').onclick=()=>this.open();$('story-close').onclick=()=>this.close();
   $('story-run').onchange=()=>this.action('activate',{run_id:$('story-run').value||null},'已切换共读。');
   $('story-new-toggle').onclick=()=>{const open=$('story-new-form').hidden;this.tab(open?'new':'events');if(open)$('story-game-title').focus();};
-  $('story-new-form').onsubmit=event=>{event.preventDefault();this.action('runs',{title:$('story-game-title').value,name:$('story-run-name').value},'已建立共读，可以收录已读文本了。').then(ok=>{if(ok){$('story-new-form').hidden=true;$('story-game-title').value='';$('story-run-name').value='';this.tab('import');}});};
+  $('story-mode').onchange=()=>this.modeLabels();
+  $('story-new-form').onsubmit=event=>{event.preventDefault();const novel=$('story-mode').value==='novel';this.action('runs',{title:$('story-game-title').value,name:$('story-run-name').value,mode:novel?'novel':'galgame'},novel?'已建立小说共读，可以收录读过的段落了。':'已建立共读，可以收录已读文本了。').then(ok=>{if(ok){$('story-new-form').hidden=true;$('story-game-title').value='';$('story-run-name').value='';this.tab('import');}});};
   document.querySelectorAll<HTMLButtonElement>('[data-story-tab]').forEach(button=>button.onclick=()=>this.tab(button.dataset.storyTab));
   $('story-kind').onchange=()=>{$('story-speaker-field').hidden=$('story-kind').value!=='dialogue';$('story-confirm').checked=false;};
   $('story-text').oninput=()=>{$('story-confirm').checked=false;};
@@ -42,14 +43,16 @@ export class StoryPanel{
   const boundary=this.state!==null&&this.state.epoch!==data.epoch;this.state=data;const active=data.active;
   const options=[{id:'',label:'普通聊天（不使用剧情记录）'},...data.runs.map(run=>({id:run.id,label:run.title+' · '+run.name}))];
   const select=$('story-run') as unknown as HTMLSelectElement;select.replaceChildren();for(const option of options)select.add(new Option(option.label,option.id));select.value=active?.id||'';
-  const reading=active?.memory?.reading;
-  const place=active?(active.title+' · '+active.branch_name+' · 已读 '+active.position+' 句'+(reading?' · 本场 '+reading.start+'–'+reading.end+(reading.at_choice?' · 停在选项':''):'')):'先建立一篇共读';
+  const reading=active?.memory?.reading;const novel=active?.mode==='novel';
+  const place=active?((novel?'小说 · ':'')+active.title+' · '+active.branch_name+' · 已读 '+active.position+' 句'+(reading?' · '+(novel?'本段 ':'本场 ')+reading.start+'–'+reading.end+(reading.at_choice&&!novel?' · 停在选项':''):'')):'先建立一篇共读';
+  $('story-text').placeholder=novel?'第一章\n他站着喝酒，穿的却是长衫。':'美咲：昨晚我没有离开宿舍。\n旁白：她避开了你的目光。';
   $('story-position').textContent=place;
   $('story-position').title=$('story-position').textContent;
   if(boundary){this.allEvents();$('story-confirm').checked=false;this.message('阅读位置已切换，旧进度的回复已收起。');}
   this.renderEvents();this.renderMemory();this.renderBookmarks();this.capture.contextChanged();this.changed(data,boundary);
  }
- private renderMemory(){const root=$('story-memory-body');root.replaceChildren();const note=document.createElement('p');note.className='story-note';note.textContent='按当前路线已读原文整理，不另调用模型。说辞和旁白分开记，其他路线不会出现在这里。';root.append(note);
+ private modeLabels(){const novel=$('story-mode').value==='novel';$('story-title-label').textContent=novel?'小说名称':'游戏名称';$('story-game-title').placeholder=novel?'正在读的小说':'你正在玩的中文版游戏';$('story-run-name').placeholder=novel?'小说共读':'初见共读';}
+ private renderMemory(){const root=$('story-memory-body');root.replaceChildren();const note=document.createElement('p');note.className='story-note';note.textContent=this.active?.mode==='novel'?'按已读章节整理，不另调用模型。人物说的话和叙述分开记，还没读的章节不会出现在这里。':'按当前路线已读原文整理，不另调用模型。说辞和旁白分开记，其他路线不会出现在这里。';root.append(note);
   const memory=this.active?.memory,scenes=memory?.scenes||[],people=memory?.characters||[];
   if(!scenes.length&&!people.length){const empty=document.createElement('p');empty.className='story-empty';empty.textContent=this.active?'收录已读原文后，这里会按场景和人物收拢。':'先建立共读并收录已读原文。';root.append(empty);return;}
   for(const scene of scenes){const block=document.createElement('div');block.className='story-memory-scene'+(scene.current?' current':'');const label=document.createElement('div');label.className='story-memory-label';label.textContent=(scene.current?'正在读 · ':'')+'第 '+scene.start+'–'+scene.end+' 句'+(scene.speakers?.length?' · '+scene.speakers.join('、'):'')+(scene.current&&scene.at_choice?' · 停在选项':'');const text=document.createElement('p');text.textContent=scene.summary;block.append(label,text);root.append(block);}

@@ -32,6 +32,7 @@ class ReadingSnapshot:
     messages: tuple = ()
     scenes: tuple = ()
     characters: tuple = ()
+    mode: str = 'galgame'
 
 
 # Derived only from events already inside the current route prefix. No model call.
@@ -88,7 +89,14 @@ def extract_aliases(text):
     return found
 
 
+CHAPTER_RE = re.compile(r'^第[0-9０-９一二三四五六七八九十百千零〇两]+[章节回]')
+SAID_RE = re.compile(r'^([\u3400-\u9fff]{1,8}?)(?:说道|问道|答道|笑道|叫道|说|道)[：:，,]?\s*[“「](.+)[”」]\s*$')
+SAID_SKIP = {'他', '她', '我', '你', '它', '他们', '她们', '我们'}
+
+
 def starts_scene(event):
+    if event.get('kind') == 'chapter':
+        return True
     return event['kind'] == 'narration' and bool(SCENE_BREAK.search((event.get('text') or '').strip()))
 
 
@@ -448,7 +456,7 @@ def pack_story_context(snapshot, question=''):
                            'claims': [slim(item) for item in person.get('claims') or []],
                            'witnessed': [slim(item) for item in person.get('witnessed') or []]})
     current = next((scene for scene in snapshot.scenes if scene.get('role') == 'current'), None)
-    return {'game': snapshot.title, 'reading_position': snapshot.position,
+    return {'mode': getattr(snapshot, 'mode', None) or 'galgame', 'game': snapshot.title, 'reading_position': snapshot.position,
             'reading': {'block': f'第{current["start"]}–{current["end"]}句' if current else '',
                         'at_choice': bool(current and current.get('at_choice')),
                         'present_speakers': list(current.get('speakers') or []) if current else []},
@@ -473,7 +481,7 @@ class StoryStore:
                 CREATE TABLE IF NOT EXISTS runs(
                     id TEXT PRIMARY KEY,game_id TEXT NOT NULL REFERENCES games(id),name TEXT NOT NULL,
                     branch_id TEXT NOT NULL,position INTEGER NOT NULL DEFAULT 0,
-                    chat_generation INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL);
+                    chat_generation INTEGER NOT NULL DEFAULT 0,mode TEXT NOT NULL DEFAULT 'galgame',created_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS branches(
                     id TEXT PRIMARY KEY,run_id TEXT NOT NULL REFERENCES runs(id),name TEXT NOT NULL,
                     parent_id TEXT REFERENCES branches(id),fork_position INTEGER NOT NULL,created_at TEXT NOT NULL);
@@ -500,6 +508,10 @@ class StoryStore:
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1),active_run_id TEXT REFERENCES runs(id),epoch INTEGER NOT NULL);
                 INSERT OR IGNORE INTO reading_state VALUES(1,NULL,0);
             ''')
+        with self.connection(True) as db:
+            columns = {row[1] for row in db.execute('PRAGMA table_info(runs)')}
+            if 'mode' not in columns:
+                db.execute("ALTER TABLE runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'galgame'")
 
     @contextmanager
     def connection(self, write=False):
@@ -539,10 +551,13 @@ class StoryStore:
     def _boundary(self, db):
         db.execute('UPDATE reading_state SET epoch=epoch+1 WHERE singleton=1')
 
-    def create_run(self, title, name, expected):
-        title, name = title.strip(), name.strip() or '初见共读'
+    def create_run(self, title, name, expected, mode='galgame'):
+        if mode not in ('galgame', 'novel'):
+            raise ValueError('请选择 Galgame 或小说。')
+        title = title.strip()
+        name = name.strip() or ('小说共读' if mode == 'novel' else '初见共读')
         if not title:
-            raise ValueError('请填写游戏名称。')
+            raise ValueError('请填写作品名称。')
         with self.connection(True) as db:
             self._check(db, expected)
             game = db.execute('SELECT id FROM games WHERE title=?', (title,)).fetchone()
@@ -550,10 +565,10 @@ class StoryStore:
             if not game:
                 db.execute('INSERT INTO games VALUES(?,?)', (game_id, title))
             run_id, branch_id = uuid4().hex, uuid4().hex
-            db.execute('INSERT INTO runs(id,game_id,name,branch_id,created_at) VALUES(?,?,?,?,?)',
-                       (run_id, game_id, name, branch_id, timestamp()))
+            db.execute('INSERT INTO runs(id,game_id,name,branch_id,mode,created_at) VALUES(?,?,?,?,?,?)',
+                       (run_id, game_id, name, branch_id, mode, timestamp()))
             db.execute('INSERT INTO branches VALUES(?,?,?,?,?,?)',
-                       (branch_id, run_id, '共同线', None, 0, timestamp()))
+                       (branch_id, run_id, '正文' if mode == 'novel' else '共同线', None, 0, timestamp()))
             db.execute('UPDATE reading_state SET active_run_id=?,epoch=epoch+1 WHERE singleton=1', (run_id,))
 
     def activate(self, run_id, expected):
@@ -639,11 +654,17 @@ class StoryStore:
                 if re.match(r'^(?:选项\s*[A-H一二三四五六]?|[A-H][.、．)）])', line):
                     event['kind'] = 'choice'
                 else:
-                    match = re.match(r'^([^：:\n]{1,30})[：:]\s*(.+)$', line) or re.match(r'^【([^】\n]{1,30})】\s*(.+)$', line)
-                    if match:
-                        name, content = match.groups()
-                        event.update(speaker='' if name in ('旁白', '叙述') else name, text=content,
-                                     kind='narration' if name in ('旁白', '叙述') else 'dialogue')
+                    if CHAPTER_RE.match(line):
+                        event['kind'] = 'chapter'
+                    else:
+                        match = re.match(r'^([^：:\n]{1,30})[：:]\s*(.+)$', line) or re.match(r'^【([^】\n]{1,30})】\s*(.+)$', line)
+                        said = SAID_RE.match(line)
+                        if match:
+                            name, content = match.groups()
+                            event.update(speaker='' if name in ('旁白', '叙述') else name, text=content,
+                                         kind='narration' if name in ('旁白', '叙述') else 'dialogue')
+                        elif said and said.group(1) not in SAID_SKIP:
+                            event.update(speaker=said.group(1), text=said.group(2), kind='dialogue')
             events.append(event)
         return events
 
@@ -761,7 +782,7 @@ class StoryStore:
             run = self._run(db)
             branch = self._branch(db, run['id'], run['branch_id'])
             events = self._events(db, run, before=before, limit=50)
-            result['active'] = {'id': run['id'], 'title': run['title'], 'name': run['name'],
+            result['active'] = {'id': run['id'], 'title': run['title'], 'name': run['name'], 'mode': run['mode'] or 'galgame',
                 'branch_id': run['branch_id'], 'branch_name': branch['name'], 'position': run['position'],
                 'tip': self._tip(db, branch), 'events': events,
                 'more_before': events[0]['position'] if events and events[0]['position'] > 1 else None,
@@ -825,7 +846,7 @@ class StoryStore:
             messages = [{'role': message['role'], 'content': clip(message['content'], DISCUSSION_CLIP)} for message in reversed(newest)]
             return ReadingSnapshot(state['epoch'], run['id'], run['branch_id'], run['position'], run['chat_generation'],
                                    run['title'], tuple(sorted(chosen, key=lambda event: event['position'])), tuple(reversed(messages)),
-                                   tuple(cards), tuple(characters))
+                                   tuple(cards), tuple(characters), run['mode'] or 'galgame')
 
     def matches(self, snapshot):
         with self.connection() as db:

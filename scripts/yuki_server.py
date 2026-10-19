@@ -162,7 +162,8 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
 
     class NewReading(ReadingEdit):
         title:str=Field(min_length=1,max_length=100)
-        name:str=Field(default='初见共读',max_length=60)
+        name:str=Field(default='',max_length=60)
+        mode:Literal['galgame','novel']='galgame'
 
     class ActivateReading(ReadingEdit):
         run_id:str|None=Field(default=None,max_length=100)
@@ -260,7 +261,7 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     async def reading_state(before:int|None=Query(default=None,ge=1)):return story.view(before)
 
     @app.post('/api/story/runs')
-    async def new_reading(data:NewReading):return edit_story(story.create_run,data.title,data.name,data.epoch)
+    async def new_reading(data:NewReading):return edit_story(story.create_run,data.title,data.name,data.epoch,data.mode)
 
     @app.post('/api/story/activate')
     async def activate_reading(data:ActivateReading):return edit_story(story.activate,data.run_id,data.epoch)
