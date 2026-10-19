@@ -6,7 +6,7 @@ import {SpeechPlayer} from './speech';
 import {StoryPanel,StoryEvidence} from './story';
 import {ModelToolbar} from './toolbar';
 declare global{interface Window{qt?:any;QWebChannel?:any;yuki:any;}}
-type Turn={role:string;content:string;emotion?:string;evidence?:StoryEvidence[];answer_type?:string};
+type Turn={role:string;content:string;emotion?:string;evidence?:StoryEvidence[];answer_type?:string;note_revision?:number};
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const avatar=new Avatar($<HTMLCanvasElement>('avatar'));
 const greeting='读到哪儿了？我陪你一起看。';
@@ -25,7 +25,7 @@ function resetBubble(){document.querySelector('.dialogue').classList.remove('exp
 function measureReply(){if(typing||document.querySelector<HTMLElement>('.dialogue').hidden||document.querySelector('.dialogue').classList.contains('expanded'))return;$('reply-expand').hidden=$('reply').scrollHeight<=$('reply').clientHeight+1;}
 function expandReply(){if($('reply-expand').hidden)return;const expanded=document.querySelector('.dialogue').classList.toggle('expanded');$('reply-expand').setAttribute('aria-expanded',String(expanded));$('reply-expand').textContent=expanded?'收起长消息':'展开';if(!expanded)$('line').scrollTop=0;}
 function setEvidence(events:StoryEvidence[]=[]){currentEvidence=events;$('evidence-toggle').hidden=events.length===0;}
-function showLast(){const last=[...turns].reverse().find(turn=>turn.role==='ai');const text=last?.content||(story.active?'读到这里了，有什么想聊的？':greeting);resetBubble();$('reply').textContent=text;fullText=text;setEvidence(last?.evidence);requestAnimationFrame(measureReply);}
+function showLast(){const last=[...turns].reverse().find(turn=>turn.role==='ai'&&(!story.active||turn.note_revision===story.active.note_revision));const text=last?.content||(story.active?'读到这里了，有什么想聊的？':greeting);resetBubble();$('reply').textContent=text;fullText=text;setEvidence(last?.evidence);requestAnimationFrame(measureReply);}
 function syncReading(state:any,boundary:boolean){
  const active=state.active;$('reading-badge').textContent=active?'共读 · '+active.position:'';$('reading-badge').title=active?active.title+' · '+active.branch_name:'';
  $('new-chat').textContent=active?'新聊':'新篇';$('new-chat').title=active?'开始新的讨论，保留已读剧情':'开始新的对话';
@@ -100,7 +100,7 @@ $('composer').addEventListener('submit',async event=>{
   const result=await api('chat',{text,session_id:session,story_epoch:epoch},controller.signal);
   if(generation!==conversationGeneration||result.story_epoch!==undefined&&result.story_epoch!==story.epoch)return;
   progressNote=(result.progress_verdict==='looking_back'||result.progress_verdict==='rewind')?(result.progress_detail||''):'';
-  turns.push({role:'human',content:text},{role:'ai',content:result.text,emotion:result.emotion,evidence:result.evidence,answer_type:result.answer_type});if(input.value.trim()===text){input.value='';setComposer(false);}setEvidence(result.evidence);write(result.text,result.emotion,result.answer_type||'');memories();
+  turns.push({role:'human',content:text,note_revision:result.story_note_revision},{role:'ai',content:result.text,emotion:result.emotion,evidence:result.evidence,answer_type:result.answer_type,note_revision:result.story_note_revision});if(input.value.trim()===text){input.value='';setComposer(false);}setEvidence(result.evidence);write(result.text,result.emotion,result.answer_type||'');memories();
   if(!$('dialogue-restore').hidden)$('dialogue-restore').textContent='◇ Yuki · 有新回复';
   if(voiceEnabled){if(result.text.length<=1200)speech.play('speech',{text:result.text,story_epoch:epoch}).catch(e=>{if(generation===conversationGeneration)hint(e.message,true);});else hint('这段回复较长，保留文字阅读。');}
  }catch(e){if(generation===conversationGeneration&&e.name!=='AbortError'){hint(e.message,true);if(!document.querySelector<HTMLElement>('.dialogue').hidden&&$('story-panel').hidden&&$('settings').hidden)setComposer(true);story.load().catch(()=>{});}}

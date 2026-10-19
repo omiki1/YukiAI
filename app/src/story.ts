@@ -1,14 +1,16 @@
 import {api} from './api';
 import {CapturePanel} from './capture';
 import {MemoryPanel} from './memory';
+import {ContinuityPanel} from './continuity';
 const $=(id:string)=>document.getElementById(id) as HTMLInputElement;
 
 export type StoryEvidence={id:number;position:number;kind:string;speaker:string;text:string;raw_text:string};
 export class StoryPanel{
- state:any=null;private busy=false;private generation=0;private importSignature='';private importId='';private timer:number;private capture:CapturePanel;private memory:MemoryPanel;
+ state:any=null;private busy=false;private generation=0;private importSignature='';private importId='';private timer:number;private capture:CapturePanel;private memory:MemoryPanel;private continuity:ContinuityPanel;
  constructor(private changed:(state:any,boundary:boolean)=>void,private opening:()=>void,historyChanged:(uid:string,deleted:boolean)=>Promise<void>){
   this.capture=new CapturePanel(()=>({epoch:this.epoch,active:this.active}),()=>this.load());
   this.memory=new MemoryPanel(()=>({epoch:this.epoch,active:this.active}),data=>this.apply(data),value=>this.setBusy(value),historyChanged);
+  this.continuity=new ContinuityPanel(()=>({epoch:this.epoch,active:this.active}),data=>this.apply(data),value=>this.setBusy(value),()=>this.load(),events=>this.showEvidence(events));
   $('story-toggle').onclick=()=>this.open();$('story-close').onclick=()=>this.close();
   $('story-run').onchange=()=>this.action('activate',{run_id:$('story-run').value||null},'已切换共读。');
   $('story-new-toggle').onclick=()=>{const open=$('story-new-form').hidden;this.tab(open?'new':'events');if(open)$('story-game-title').focus();};
@@ -33,16 +35,16 @@ export class StoryPanel{
  get epoch(){return this.state?.epoch??null;}
  get active(){return this.state?.active??null;}
  async load(){const generation=++this.generation;const data=await api('story');if(generation!==this.generation)return;
-  const signature=(state:any)=>JSON.stringify([state?.epoch,state?.runs,state?.active?.position,state?.active?.messages,state?.active?.bookmarks,state?.active?.branches,state?.active?.memory,state?.active?.progress]);
+  const signature=(state:any)=>JSON.stringify([state?.epoch,state?.runs,state?.active?.position,state?.active?.messages,state?.active?.bookmarks,state?.active?.branches,state?.active?.memory,state?.active?.progress,state?.active?.note_revision]);
   if(!this.state||signature(data)!==signature(this.state))this.apply(data);
  }
  open(){this.opening();$('story-panel').hidden=false;$('story-toggle').setAttribute('aria-expanded','true');$('story-close').focus();this.load().catch(e=>this.message(e.message,true));}
  close(){if(this.busy||$('story-panel').hidden)return;$('story-panel').hidden=true;$('story-toggle').setAttribute('aria-expanded','false');$('story-toggle').focus();}
  private tab(name:string){document.querySelectorAll<HTMLElement>('[data-story-pane]').forEach(pane=>pane.hidden=pane.dataset.storyPane!==name);document.querySelectorAll<HTMLElement>('[data-story-tab]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.storyTab===name)));$('story-new-toggle').setAttribute('aria-expanded',String(name==='new'));if(name==='capture')this.capture.open();if(name==='manage')this.memory.open();}
  private message(text:string,error=false){$('story-status').textContent=text;$('story-status').title=text;$('story-status').classList.toggle('error',error);}
- private setBusy(value:boolean){this.busy=value;if(value)++this.generation;$('story-panel').querySelectorAll<HTMLInputElement>('button,input,select,textarea').forEach(el=>el.disabled=value);$('settings-toggle').disabled=value;this.capture.setBlocked(value);this.memory.setBlocked(value);}
+ private setBusy(value:boolean){this.busy=value;if(value)++this.generation;$('story-panel').querySelectorAll<HTMLInputElement>('button,input,select,textarea').forEach(el=>el.disabled=value);$('settings-toggle').disabled=value;this.capture.setBlocked(value);this.memory.setBlocked(value);this.continuity.setBlocked(value);}
  private apply(data:any){
-  const boundary=this.state!==null&&this.state.epoch!==data.epoch;this.state=data;const active=data.active;
+  const boundary=this.state!==null&&(this.state.epoch!==data.epoch||this.state.active?.note_revision!==data.active?.note_revision);this.state=data;const active=data.active;
   const options=[{id:'',label:'普通聊天（不使用剧情记录）'},...data.runs.map(run=>({id:run.id,label:run.title+' · '+run.name}))];
   const select=$('story-run') as unknown as HTMLSelectElement;select.replaceChildren();for(const option of options)select.add(new Option(option.label,option.id));select.value=active?.id||'';
   const reading=active?.memory?.reading;const novel=active?.mode==='novel';
@@ -51,8 +53,8 @@ export class StoryPanel{
   $('story-position').textContent=place;
   $('story-position').title=$('story-position').textContent;
   const progress=active?.progress;$('story-progress').hidden=!progress?.detail;$('story-progress').textContent=progress?.detail||'';
-  if(boundary){this.allEvents();$('story-evidence-lines').replaceChildren();$('story-confirm').checked=false;this.message('阅读位置已切换，旧进度的回复已收起。');}
-  this.renderEvents();this.renderMemory();this.renderBookmarks();this.capture.contextChanged();this.memory.contextChanged();this.changed(data,boundary);
+  if(boundary){this.allEvents();$('story-evidence-lines').replaceChildren();$('story-confirm').checked=false;this.message('共读进度或手记已更新，旧回复已收起。');}
+  this.renderEvents();this.renderMemory();this.renderBookmarks();this.capture.contextChanged();this.memory.contextChanged();this.continuity.contextChanged();this.changed(data,boundary);
  }
  private modeLabels(){const novel=$('story-mode').value==='novel';$('story-title-label').textContent=novel?'小说名称':'游戏名称';$('story-game-title').placeholder=novel?'正在读的小说':'你正在玩的中文版游戏';$('story-run-name').placeholder=novel?'小说共读':'初见共读';}
  private renderMemory(){const root=$('story-memory-body');root.replaceChildren();const note=document.createElement('p');note.className='story-note';note.textContent=this.active?.mode==='novel'?'按已读章节整理，不另调用模型。人物说的话和叙述分开记，还没读的章节不会出现在这里。':'按当前路线已读原文整理，不另调用模型。说辞和旁白分开记，其他路线不会出现在这里。';root.append(note);

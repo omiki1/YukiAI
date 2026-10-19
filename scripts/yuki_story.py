@@ -36,6 +36,8 @@ class ReadingSnapshot:
     focus_position: int = 0
     referent: str = ''
     referent_ambiguous: bool = False
+    notes: tuple = ()
+    note_revision: int = 0
 
 
 # Derived only from events already inside the current route prefix. No model call.
@@ -602,6 +604,9 @@ def pack_story_context(snapshot, question=''):
                         'referent': getattr(snapshot, 'referent', '') or '',
                         'referent_ambiguous': bool(getattr(snapshot, 'referent_ambiguous', False))},
             'loaded_blocks': blocks, 'scenes': catalog, 'characters': characters,
+            'player_notes': [{'kind': note['kind'], 'status': note['status'], 'text': focus_text(note['text'], terms, 200),
+                              'linked_event_ids': [event_id for event_id in note['evidence_ids'] if event_id in loaded_ids]}
+                             for note in getattr(snapshot, 'notes', ())],
             'route_discussion': [{'speaker': 'player' if item['role'] == 'human' else 'Yuki',
                                   'text': focus_text(item.get('content') or '', terms, DISCUSSION_CLIP)}
                                  for item in snapshot.messages]}
@@ -645,6 +650,16 @@ class StoryStore:
                     chat_generation INTEGER NOT NULL,user_text TEXT NOT NULL,reply TEXT NOT NULL,
                     emotion TEXT NOT NULL,answer_type TEXT NOT NULL,evidence_ids TEXT NOT NULL,created_at TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS turn_scope ON story_turns(run_id,branch_id,position);
+                CREATE TABLE IF NOT EXISTS reading_notes(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,note_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL REFERENCES runs(id),branch_id TEXT NOT NULL REFERENCES branches(id),
+                    position INTEGER NOT NULL,kind TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,
+                    evidence_ids TEXT NOT NULL,origin_turn_id INTEGER REFERENCES story_turns(id) ON DELETE SET NULL,
+                    created_at TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS note_scope ON reading_notes(run_id,branch_id,position);
+                CREATE TABLE IF NOT EXISTS reading_recaps(
+                    run_id TEXT NOT NULL REFERENCES runs(id),branch_id TEXT NOT NULL REFERENCES branches(id),
+                    fingerprint TEXT NOT NULL,content TEXT NOT NULL,PRIMARY KEY(run_id,branch_id));
                 CREATE TABLE IF NOT EXISTS progress_checks(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL REFERENCES runs(id),
                     branch_id TEXT NOT NULL,position INTEGER NOT NULL,kind TEXT NOT NULL,
@@ -657,6 +672,15 @@ class StoryStore:
             columns = {row[1] for row in db.execute('PRAGMA table_info(runs)')}
             if 'mode' not in columns:
                 db.execute("ALTER TABLE runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'galgame'")
+            if 'note_generation' not in columns:
+                db.execute('ALTER TABLE runs ADD COLUMN note_generation INTEGER NOT NULL DEFAULT 0')
+            branch_columns = {row[1] for row in db.execute('PRAGMA table_info(branches)')}
+            for column in ('note_cutoff', 'turn_cutoff'):
+                if column not in branch_columns:
+                    db.execute(f'ALTER TABLE branches ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0')
+            turn_columns = {row[1] for row in db.execute('PRAGMA table_info(story_turns)')}
+            if 'note_generation' not in turn_columns:
+                db.execute('ALTER TABLE story_turns ADD COLUMN note_generation INTEGER NOT NULL DEFAULT 0')
 
     @contextmanager
     def connection(self, write=False):
@@ -712,7 +736,7 @@ class StoryStore:
             run_id, branch_id = uuid4().hex, uuid4().hex
             db.execute('INSERT INTO runs(id,game_id,name,branch_id,mode,created_at) VALUES(?,?,?,?,?,?)',
                        (run_id, game_id, name, branch_id, mode, timestamp()))
-            db.execute('INSERT INTO branches VALUES(?,?,?,?,?,?)',
+            db.execute('INSERT INTO branches(id,run_id,name,parent_id,fork_position,created_at) VALUES(?,?,?,?,?,?)',
                        (branch_id, run_id, '正文' if mode == 'novel' else '共同线', None, 0, timestamp()))
             db.execute('UPDATE reading_state SET active_run_id=?,epoch=epoch+1 WHERE singleton=1', (run_id,))
 
@@ -751,6 +775,22 @@ class StoryStore:
             return '0', []
         return '(' + ' OR '.join('(branch_id=? AND position<=?)' for _ in segments) + ')', [x for pair in segments for x in pair]
 
+    def _version_scope(self, db, run, cutoff_column):
+        """Parent edits/discussions created after a fork cannot enter its child, even at the same position."""
+        branch_id, position, ceiling, seen = run['branch_id'], run['position'], None, set()
+        pieces, args = [], []
+        while branch_id:
+            if branch_id in seen:
+                raise ValueError('路线记录无法读取。')
+            seen.add(branch_id)
+            branch = self._branch(db, run['id'], branch_id)
+            pieces.append('(branch_id=? AND position<=?' + (' AND id<=?' if ceiling is not None else '') + ')')
+            args.extend([branch_id, position] + ([ceiling] if ceiling is not None else []))
+            position = min(position, branch['fork_position'])
+            ceiling = branch[cutoff_column] if ceiling is None else min(ceiling, branch[cutoff_column])
+            branch_id = branch['parent_id']
+        return '(' + ' OR '.join(pieces) + ')', args
+
     def _events(self, db, run, before=None, limit=None):
         scope, args = self._scope(self._segments(db, run['id'], run['branch_id'], run['position']))
         query = 'SELECT * FROM events WHERE run_id=? AND confirmed_read=1 AND ' + scope
@@ -765,7 +805,7 @@ class StoryStore:
         return list(reversed([dict(row) for row in db.execute(query, args)]))
 
     def _messages(self, db, run):
-        scope, args = self._scope(self._segments(db, run['id'], run['branch_id'], run['position']))
+        scope, args = self._version_scope(db, run, 'turn_cutoff')
         rows = list(db.execute('SELECT * FROM story_turns WHERE run_id=? AND chat_generation=? AND ' + scope +
                                ' ORDER BY id DESC LIMIT 12',
                                [run['id'], run['chat_generation'], *args]))
@@ -779,9 +819,9 @@ class StoryStore:
                 if not all(event_id in allowed for event_id in ids):
                     continue
             evidence = [allowed[event_id] for event_id in ids] if ids else []
-            messages.extend([{'role': 'human', 'content': row['user_text']},
+            messages.extend([{'role': 'human', 'content': row['user_text'], 'note_revision': row['note_generation']},
                              {'role': 'ai', 'content': row['reply'], 'emotion': row['emotion'],
-                              'evidence': evidence, 'answer_type': row['answer_type']}])
+                              'evidence': evidence, 'answer_type': row['answer_type'], 'note_revision': row['note_generation']}])
         return messages
 
     @staticmethod
@@ -817,8 +857,10 @@ class StoryStore:
         branch_id = uuid4().hex
         count = db.execute('SELECT COUNT(*) FROM branches WHERE run_id=?', (run['id'],)).fetchone()[0]
         name = name.strip() or f'分支 {count}'
-        db.execute('INSERT INTO branches VALUES(?,?,?,?,?,?)',
-                   (branch_id, run['id'], name, run['branch_id'], run['position'], timestamp()))
+        note_cutoff = db.execute('SELECT COALESCE(MAX(id),0) FROM reading_notes').fetchone()[0]
+        turn_cutoff = db.execute('SELECT COALESCE(MAX(id),0) FROM story_turns').fetchone()[0]
+        db.execute('INSERT INTO branches(id,run_id,name,parent_id,fork_position,created_at,note_cutoff,turn_cutoff) VALUES(?,?,?,?,?,?,?,?)',
+                   (branch_id, run['id'], name, run['branch_id'], run['position'], timestamp(), note_cutoff, turn_cutoff))
         db.execute('UPDATE runs SET branch_id=? WHERE id=?', (branch_id, run['id']))
         self._boundary(db)
         return branch_id
@@ -904,6 +946,8 @@ class StoryStore:
                 return
             run = self._run(db)
             focus = snapshot.focus_position or run['position']
+            if run['note_generation'] != snapshot.note_revision:
+                return
             detail = f'这一问对上第 {focus} 句' if focus != run['position'] else '这一问就在当前进度'
             self._note(db, run, 'question', focus, detail)
 
@@ -978,6 +1022,125 @@ class StoryStore:
             db.execute('UPDATE runs SET chat_generation=chat_generation+1 WHERE id=?', (run['id'],))
             self._boundary(db)
 
+    def _visible_notes(self, db, run, events=None):
+        events = self._events(db, run) if events is None else events
+        allowed = {event['id']: event for event in events}
+        scope, args = self._version_scope(db, run, 'note_cutoff')
+        rows = db.execute('SELECT * FROM reading_notes WHERE run_id=? AND ' + scope + ' ORDER BY id DESC', [run['id'], *args])
+        seen, notes = set(), []
+        for row in rows:
+            if row['note_id'] in seen:
+                continue
+            seen.add(row['note_id'])
+            ids = json.loads(row['evidence_ids'])
+            if not all(event_id in allowed for event_id in ids):
+                continue
+            item = dict(row)
+            item['evidence_ids'] = ids
+            item['evidence'] = [ui_line(allowed[event_id]) for event_id in ids]
+            notes.append(item)
+        return notes
+
+    def save_note(self, run_id, text, kind, status, ids, expected, note_id=None, version=None, turn_id=None):
+        text = text.strip()
+        if kind not in ('question', 'theory', 'feeling') or status not in ('open', 'resolved'):
+            raise ValueError('请选择疑问、猜测或感受，以及是否已聊清楚。')
+        if not isinstance(ids, list) or len(ids) > 12 or any(type(event_id) is not int for event_id in ids):
+            raise ValueError('关联原文格式不正确。')
+        with self.connection(True) as db:
+            self._check(db, expected)
+            run = self._run(db)
+            if run['id'] != run_id:
+                raise StoryConflict('共读已经切换，请重新打开手记。')
+            events = self._events(db, run)
+            allowed = {event['id'] for event in events}
+            if note_id:
+                current = next((note for note in self._visible_notes(db, run, events) if note['note_id'] == note_id), None)
+                if not current or current['id'] != version:
+                    raise StoryConflict('这条手记已改变或不在当前进度，请刷新后重试。')
+                turn_id = current['origin_turn_id']
+            elif turn_id is not None:
+                scope, args = self._version_scope(db, run, 'turn_cutoff')
+                turn = db.execute('SELECT * FROM story_turns WHERE id=? AND run_id=? AND chat_generation=? AND ' + scope,
+                                  [turn_id, run_id, run['chat_generation'], *args]).fetchone()
+                if not turn:
+                    raise StoryConflict('这段讨论不在当前进度，请刷新后重试。')
+                if any(note['origin_turn_id'] == turn_id for note in self._visible_notes(db, run, events)):
+                    return
+                text, ids = turn['user_text'][:800], json.loads(turn['evidence_ids'])
+            if not text or len(text) > 800:
+                raise ValueError('手记请写1～800字。')
+            if not set(ids).issubset(allowed):
+                raise StoryConflict('手记只能关联当前路线、当前进度内的原文。')
+            # Edits are new versions at this reading position. Rewinding reveals the earlier version.
+            db.execute('INSERT INTO reading_notes(note_id,run_id,branch_id,position,kind,text,status,evidence_ids,origin_turn_id,created_at) '
+                       'VALUES(?,?,?,?,?,?,?,?,?,?)', (note_id or uuid4().hex, run_id, run['branch_id'], run['position'],
+                       kind, text, status, json.dumps(list(dict.fromkeys(ids))), turn_id, timestamp()))
+            db.execute('UPDATE runs SET note_generation=note_generation+1 WHERE id=?', (run_id,))
+
+    def delete_note(self, run_id, note_id, version, expected):
+        with self.connection(True) as db:
+            self._check(db, expected)
+            run = self._run(db)
+            if run['id'] != run_id:
+                raise StoryConflict('共读已经切换。')
+            current = next((note for note in self._visible_notes(db, run) if note['note_id'] == note_id), None)
+            if not current or current['id'] != version:
+                raise StoryConflict('这条手记已改变或不在当前进度，请刷新后重试。')
+            db.execute('DELETE FROM reading_notes WHERE run_id=? AND note_id=?', (run_id, note_id))
+            db.execute('DELETE FROM reading_recaps WHERE run_id=?', (run_id,))
+            db.execute('UPDATE runs SET note_generation=note_generation+1 WHERE id=?', (run_id,))
+
+    def continuity(self, before_note=None):
+        with self.connection(True) as db:
+            state = self._state(db)
+            if not state['active_run_id']:
+                return {'epoch': state['epoch'], 'run_id': None, 'recap': None, 'notes': []}
+            run = self._run(db)
+            events = self._events(db, run)
+            allowed = {event['id']: event for event in events}
+            scope, args = self._version_scope(db, run, 'turn_cutoff')
+            turns = []
+            for row in db.execute('SELECT * FROM story_turns WHERE run_id=? AND chat_generation=? AND ' + scope +
+                                  ' ORDER BY id DESC LIMIT 6', [run['id'], run['chat_generation'], *args]):
+                ids = json.loads(row['evidence_ids'])
+                if all(event_id in allowed for event_id in ids):
+                    turns.append({'turn_id': row['id'], 'position': row['position'], 'text': clip(row['user_text'], 280),
+                                  'evidence': [ui_line(allowed[event_id]) for event_id in ids[:4]]})
+                if len(turns) == 3:
+                    break
+            signature = [1, run['id'], run['branch_id'], run['position'], run['chat_generation'], run['note_generation'],
+                         [event['id'] for event in events], [turn['turn_id'] for turn in turns]]
+            fingerprint = hashlib.sha256(json.dumps(signature).encode()).hexdigest()
+            cached = db.execute('SELECT * FROM reading_recaps WHERE run_id=? AND branch_id=?', (run['id'], run['branch_id'])).fetchone()
+            recap = None
+            if cached and cached['fingerprint'] == fingerprint:
+                try:
+                    candidate = json.loads(cached['content'])
+                    if isinstance(candidate, dict) and candidate.get('position') == run['position']:
+                        recap = candidate
+                except ValueError:
+                    pass
+            if recap is None:
+                scenes = segment_scenes(events)
+                current = scenes[-1] if scenes else []
+                selected = current[-2:]
+                narration = next((event for event in reversed(current) if event['kind'] in ('narration', 'chapter')), None)
+                if narration and narration not in selected:
+                    selected = [narration, *selected]
+                recap = {'position': run['position'], 'start': current[0]['position'] if current else 0,
+                         'at_choice': bool(current and current[-1]['kind'] == 'choice'),
+                         'excerpts': [ui_line(event) for event in sorted(selected, key=lambda event: event['position'])],
+                         'topics': turns, 'updated_at': timestamp()}
+                db.execute('INSERT INTO reading_recaps VALUES(?,?,?,?) ON CONFLICT(run_id,branch_id) DO UPDATE '
+                           'SET fingerprint=excluded.fingerprint,content=excluded.content',
+                           (run['id'], run['branch_id'], fingerprint, json.dumps(recap, ensure_ascii=False)))
+            notes = self._visible_notes(db, run, events)
+            page = [note for note in notes if before_note is None or note['id'] < before_note][:51]
+            return {'epoch': state['epoch'], 'run_id': run['id'], 'branch_id': run['branch_id'],
+                    'note_revision': run['note_generation'], 'recap': recap, 'notes': page[:50], 'note_count': len(notes),
+                    'more_notes': page[49]['id'] if len(page) > 50 else None}
+
     def memory_inventory(self):
         """Counts cover every branch and chat generation, including hidden discussions."""
         with self.connection() as db:
@@ -987,6 +1150,7 @@ class StoryStore:
                 for table in ('events', 'branches', 'bookmarks', 'story_turns', 'progress_checks', 'imports'):
                     item[table] = db.execute(f'SELECT COUNT(*) FROM {table} WHERE run_id=?', (row['id'],)).fetchone()[0]
                 item['text_bytes'] = db.execute('SELECT COALESCE(SUM(length(CAST(raw_text AS BLOB))),0) FROM events WHERE run_id=?', (row['id'],)).fetchone()[0]
+                item['notes'] = db.execute('SELECT COUNT(DISTINCT note_id) FROM reading_notes WHERE run_id=?', (row['id'],)).fetchone()[0]
                 item['revision'] = self._memory_revision(db, row['id'])
                 runs.append(item)
             return {'epoch': self._state(db)['epoch'], 'runs': runs}
@@ -996,7 +1160,7 @@ class StoryStore:
         if not run:
             raise ValueError('没有找到这篇共读。')
         values = [dict(run)]
-        for table in ('events', 'branches', 'bookmarks', 'story_turns', 'progress_checks', 'imports'):
+        for table in ('events', 'branches', 'bookmarks', 'story_turns', 'progress_checks', 'imports', 'reading_notes'):
             values.append(tuple(db.execute(f'SELECT COUNT(*),COALESCE(MAX(rowid),0) FROM {table} WHERE run_id=?', (run_id,)).fetchone()))
         return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
@@ -1008,13 +1172,14 @@ class StoryStore:
             if self._memory_revision(db, run_id) != revision:
                 raise StoryConflict('记录有了新变化，请重新预览清理范围。')
             if action == 'clear_discussion':
+                db.execute('DELETE FROM reading_recaps WHERE run_id=?', (run_id,))
                 db.execute('DELETE FROM story_turns WHERE run_id=?', (run_id,))
                 db.execute('UPDATE runs SET chat_generation=chat_generation+1 WHERE id=?', (run_id,))
             else:
                 game_id = db.execute('SELECT game_id FROM runs WHERE id=?', (run_id,)).fetchone()[0]
                 if state['active_run_id'] == run_id:
                     db.execute('UPDATE reading_state SET active_run_id=NULL WHERE singleton=1')
-                for table in ('progress_checks', 'story_turns', 'imports', 'bookmarks', 'events', 'branches'):
+                for table in ('reading_recaps', 'reading_notes', 'progress_checks', 'story_turns', 'imports', 'bookmarks', 'events', 'branches'):
                     db.execute(f'DELETE FROM {table} WHERE run_id=?', (run_id,))
                 db.execute('DELETE FROM runs WHERE id=?', (run_id,))
                 db.execute('DELETE FROM games WHERE id=? AND NOT EXISTS(SELECT 1 FROM runs WHERE game_id=?)', (game_id, game_id))
@@ -1047,6 +1212,7 @@ class StoryStore:
             events = self._events(db, run, before=before, limit=50)
             result['active'] = {'id': run['id'], 'title': run['title'], 'name': run['name'], 'mode': run['mode'] or 'galgame',
                 'branch_id': run['branch_id'], 'branch_name': branch['name'], 'position': run['position'],
+                'note_revision': run['note_generation'],
                 'tip': self._tip(db, branch), 'events': events,
                 'more_before': events[0]['position'] if events and events[0]['position'] > 1 else None,
                 'messages': self._messages(db, run),
@@ -1068,6 +1234,10 @@ class StoryStore:
             scenes = segment_scenes(events)
             people = build_characters(events)
             terms = question_terms(question)
+            notes = self._visible_notes(db, run, events)
+            def note_score(note):
+                return sum(term_weight(term) for term in terms if term in note['text'].lower())
+            selected_notes = sorted(notes, key=lambda note: (note_score(note), note['status'] == 'open', note['id']), reverse=True)[:4]
             current = scenes[-1] if scenes else ()
             nearby = scenes[-2] if len(scenes) > 1 and current and len(current) < WORKING_SCENE_SHORT else ()
             # Names in the question point at a block; the block, not one matching line, is what gets opened.
@@ -1076,6 +1246,9 @@ class StoryStore:
             focus_names = tuple(person['name'] for person in selected_people
                                 if person['name'] in question or any(alias in question for alias in person['aliases']) or person['name'] == referent)
             explicit = set(re.findall(r'第\s*(\d+)\s*[句条段]', question or ''))
+            note_question = any(word in question for word in ('手记', '上次聊', '上回聊', '之前猜', '待解', '疑问'))
+            linked = {event_id for note in selected_notes if note_question or note_score(note) >= 4 for event_id in note['evidence_ids']}
+            explicit.update(str(event['position']) for event in events if event['id'] in linked)
             chosen_blocks = choose_blocks(scenes, terms, focus_names, explicit, referent)
             # The passage the question names is loaded first. The confirmed tip stays a short anchor.
             focus_scene = current
@@ -1123,7 +1296,7 @@ class StoryStore:
                         'witnessed': trim_mentions(person['witnessed'], terms, names, 3, provided)}
                 if card['claims'] or card['witnessed']:
                     characters.append(card)
-            newest = list(reversed(self._messages(db, run)))[:DISCUSSION_TURNS]
+            newest = [message for message in reversed(self._messages(db, run)) if message['note_revision'] == run['note_generation']][:DISCUSSION_TURNS]
             messages = [{'role': message['role'], 'content': clip(message['content'], DISCUSSION_CLIP)} for message in reversed(newest)]
             explicit_lines = [event for event in chosen if str(event['position']) in explicit]
             if explicit_lines:
@@ -1133,12 +1306,15 @@ class StoryStore:
                 focus_position = ranked_lines[0]['position'] if ranked_lines and event_score(ranked_lines[0], terms, focus_names) else run['position']
             return ReadingSnapshot(state['epoch'], run['id'], run['branch_id'], run['position'], run['chat_generation'],
                                    run['title'], tuple(sorted(chosen, key=lambda event: event['position'])), tuple(reversed(messages)),
-                                   tuple(cards), tuple(characters), run['mode'] or 'galgame', focus_position, referent, referent_ambiguous)
+                                   tuple(cards), tuple(characters), run['mode'] or 'galgame', focus_position, referent, referent_ambiguous,
+                                   tuple(selected_notes), run['note_generation'])
 
     def matches(self, snapshot):
         with self.connection() as db:
             state = self._state(db)
-            return state['epoch'] == snapshot.epoch and state['active_run_id'] == snapshot.run_id
+            if state['epoch'] != snapshot.epoch or state['active_run_id'] != snapshot.run_id:
+                return False
+            return not snapshot.run_id or self._run(db)['note_generation'] == snapshot.note_revision
 
     def append_exchange(self, snapshot, user, result):
         ids = result.get('evidence_ids', [])
@@ -1153,8 +1329,10 @@ class StoryStore:
             state = self._check(db, snapshot.epoch)
             if state['active_run_id'] != snapshot.run_id:
                 raise StoryConflict('共读记录已经切换。')
-            db.execute('INSERT INTO story_turns(run_id,branch_id,position,chat_generation,user_text,reply,emotion,answer_type,evidence_ids,created_at) '
-                       'VALUES(?,?,?,?,?,?,?,?,?,?)', (snapshot.run_id, snapshot.branch_id, snapshot.position,
+            if self._run(db)['note_generation'] != snapshot.note_revision:
+                raise StoryConflict('共读手记已经改变，请重新提问。')
+            db.execute('INSERT INTO story_turns(run_id,branch_id,position,chat_generation,user_text,reply,emotion,answer_type,evidence_ids,created_at,note_generation) '
+                       'VALUES(?,?,?,?,?,?,?,?,?,?,?)', (snapshot.run_id, snapshot.branch_id, snapshot.position,
                        snapshot.chat_generation, user, result['text'], result['emotion'], result.get('answer_type', 'uncertain'),
-                       json.dumps(list(dict.fromkeys(ids))), timestamp()))
+                       json.dumps(list(dict.fromkeys(ids))), timestamp(), snapshot.note_revision))
         return [event for event in snapshot.events if event['id'] in ids]

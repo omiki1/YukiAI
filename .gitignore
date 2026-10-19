@@ -35,6 +35,8 @@
 !/scripts/yuki_memory.py
 !/scripts/test_memory_management.py
 !/scripts/verify_memory.cjs
+!/scripts/test_continuity.py
+!/scripts/verify_continuity.cjs
 !/scripts/yuki_server.py
 !/scripts/yuki_window.py
 !/scripts/yuki_config.py

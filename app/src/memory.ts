@@ -30,7 +30,7 @@ export class MemoryPanel{
   const data=this.data;if(!data)return;
   $('memory-usage').textContent='共读 '+bytes(data.storage.database_bytes)+' · 普通聊天 '+bytes(data.storage.history_bytes)+' · 备份 '+bytes(data.storage.backup_bytes);
   const runs=$('memory-runs');runs.replaceChildren();
-  for(const item of data.runs)this.row(runs,item.title+' · '+item.name,item.events+' 句原文 · '+item.branches+' 条路线 · '+item.bookmarks+' 个书签 · '+item.story_turns+' 轮讨论（含旧讨论）',[
+  for(const item of data.runs)this.row(runs,item.title+' · '+item.name,item.events+' 句原文 · '+item.branches+' 条路线 · '+item.bookmarks+' 个书签 · '+item.story_turns+' 轮讨论（含旧讨论） · '+(item.notes||0)+' 条手记',[
    this.button('清空讨论',()=>this.preview('clear_discussion',item.id)),this.button('删除共读',()=>this.preview('delete_run',item.id))]);
   if(!data.runs.length)runs.textContent='还没有保存共读。';
   const histories=$('memory-histories');histories.replaceChildren();

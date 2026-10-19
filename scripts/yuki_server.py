@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel,Field
+from pydantic import BaseModel,Field,StrictInt
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .yuki_history import HistoryStore
 from .yuki_config import ConfigStore,Configuration,ready
@@ -292,6 +292,39 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     @app.post('/api/story/chat/new')
     async def new_reading_chat(data:ReadingEdit):return edit_story(story.new_chat,data.epoch)
 
+    class ReadingNote(ReadingEdit):
+        run_id:str=Field(min_length=1,max_length=100)
+        text:str=Field(default='',max_length=800)
+        kind:Literal['question','theory','feeling']='question'
+        status:Literal['open','resolved']='open'
+        evidence_ids:list[StrictInt]=Field(default_factory=list,max_length=12)
+        note_id:str|None=Field(default=None,max_length=100)
+        version:int|None=Field(default=None,ge=1)
+        turn_id:int|None=Field(default=None,ge=1)
+
+    class DeleteNote(ReadingEdit):
+        run_id:str=Field(min_length=1,max_length=100)
+        note_id:str=Field(min_length=1,max_length=100)
+        version:int=Field(ge=1)
+        confirmed:Literal[True]
+
+    @app.get('/api/story/continuity')
+    async def reading_continuity(before_note:int|None=Query(default=None,ge=1)):
+        return memory_call(story.continuity,before_note)
+
+    @app.post('/api/story/notes')
+    async def reading_note(data:ReadingNote):
+        result=edit_story(story.save_note,data.run_id,data.text,data.kind,data.status,data.evidence_ids,
+                          data.epoch,data.note_id,data.version,data.turn_id)
+        cancel_reading_tasks()
+        return result
+
+    @app.post('/api/story/notes/delete')
+    async def delete_reading_note(data:DeleteNote):
+        result=edit_story(story.delete_note,data.run_id,data.note_id,data.version,data.epoch)
+        cancel_reading_tasks()
+        return result
+
     class MemoryPlan(ReadingEdit):
         action:Literal['clear_discussion','delete_run','delete_history','restore_backup','delete_backup']
         id:str=Field(min_length=1,max_length=100)
@@ -389,6 +422,7 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
                     result['progress_verdict']=progress.get('verdict') or 'steady'
                 else:store.append_exchange(data.session_id,text,result['text'],result['emotion'])
                 result['story_epoch']=snapshot.epoch
+                result['story_note_revision']=snapshot.note_revision
                 return result
             except asyncio.CancelledError:raise HTTPException(409,'阅读进度已改变，上一条回复已停止。') from None
             except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
