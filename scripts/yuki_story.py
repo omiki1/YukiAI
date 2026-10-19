@@ -65,13 +65,24 @@ def clip(text, limit):
 def question_terms(question):
     terms = set(re.findall(r'[a-z0-9_]{2,}', (question or '').lower()))
     for phrase in re.findall(r'[\u3400-\u9fff]+', question or ''):
-        terms.update(phrase[index:index + 2] for index in range(len(phrase) - 1))
+        for size in (2, 3, 4):
+            if len(phrase) >= size:
+                terms.update(phrase[index:index + size] for index in range(len(phrase) - size + 1))
     return terms - STOPWORDS
 
 
+def term_weight(term):
+    length = len(term)
+    if length >= 4:
+        return 4
+    if length == 3:
+        return 3
+    return 1
+
+
 def event_score(event, terms, names=()):
-    blob = (event.get('speaker') or '') + (event.get('text') or '')
-    score = sum(term in blob.lower() for term in terms)
+    blob = ((event.get('speaker') or '') + (event.get('text') or '')).lower()
+    score = sum(term_weight(term) for term in terms if term in blob)
     for name in names:
         if name and len(name) >= 2 and name in blob:
             score += 5
@@ -393,9 +404,14 @@ def choose_blocks(scenes, terms, names, explicit):
     opened = 0
     ranked = sorted((scene for scene in scenes if scene not in loaded),
                     key=lambda scene: (block_score(scene, terms, names), scene[-1]['position']), reverse=True)
+    best = block_score(ranked[0], terms, names) if ranked else 0
     for scene in ranked:
-        if opened >= EARLIER_BLOCK_LIMIT or block_score(scene, terms, names) <= 0:
+        score = block_score(scene, terms, names)
+        if opened >= EARLIER_BLOCK_LIMIT or score <= 0:
             break
+        # A shared two-character fragment should not open a whole other passage.
+        if best >= 8 and score * 4 < best:
+            continue
         add(scene)
         opened += 1
     return loaded

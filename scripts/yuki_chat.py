@@ -127,12 +127,25 @@ class TextChat:
             timeout=45,max_retries=0,http_client=httpx.AsyncClient(timeout=45,follow_redirects=False,transport=transport))
 
     @staticmethod
+    def load_json_object(raw):
+        text=(raw or '').strip()
+        if text.startswith('```'):
+            text=re.sub(r'^```(?:json)?\s*|\s*```$','',text).strip()
+        try:
+            data=json.loads(text)
+        except json.JSONDecodeError:
+            start,end=text.find('{'),text.rfind('}')
+            if start<0 or end<=start:
+                raise
+            data=json.loads(text[start:end+1])
+        if not isinstance(data,dict):
+            raise ValueError('回复内容为空。')
+        return data
+
+    @staticmethod
     def decode(raw):
-        raw=raw.strip()
-        if raw.startswith('```'):
-            raw=re.sub(r'^```(?:json)?\s*|\s*```$','',raw).strip()
-        data=json.loads(raw)
-        if not isinstance(data,dict) or not isinstance(data.get('text'),str) or not data['text'].strip():
+        data=TextChat.load_json_object(raw)
+        if not isinstance(data.get('text'),str) or not data['text'].strip():
             raise ValueError('回复内容为空。')
         emotion=data.get('emotion','neutral')
         return {'text':data['text'].strip(),'emotion':emotion if emotion in EMOTIONS else 'neutral'}
@@ -155,15 +168,9 @@ class TextChat:
         messages.append({'role':'user','content':text})
         return messages
 
-    async def complete_story(self,text,snapshot):
-        options={'response_format':{'type':'json_object'}} if self.json_mode else {}
-        if 'deepseek' in self.model.lower():options['extra_body']={'thinking':{'type':'disabled'}}
-        response=await self.client.chat.completions.create(model=self.model,messages=self.story_messages(text,snapshot),
-            max_tokens=768,temperature=.7,**options)
-        raw=response.choices[0].message.content or ''
+    def read_story_reply(self,raw,snapshot,text):
+        data=self.load_json_object(raw)
         result=self.decode(raw)
-        if raw.strip().startswith('```'):raw=re.sub(r'^```(?:json)?\s*|\s*```$','',raw.strip()).strip()
-        data=json.loads(raw)
         ids=data.get('evidence_ids');kind=data.get('answer_type')
         if kind not in ('analysis','chat','uncertain') or not isinstance(ids,list) or len(ids)>12 or not all(type(x) is int for x in ids):
             raise ValueError('原文引用格式不正确。')
@@ -171,3 +178,17 @@ class TextChat:
             raise ValueError('回复没有有效的原文依据。')
         result.update(evidence_ids=list(dict.fromkeys(ids)),answer_type=kind)
         return ground_story_answer(result, snapshot, text)
+
+    async def complete_story(self,text,snapshot):
+        options={'response_format':{'type':'json_object'}} if self.json_mode else {}
+        if 'deepseek' in self.model.lower():options['extra_body']={'thinking':{'type':'disabled'}}
+        messages=self.story_messages(text,snapshot)
+        last=None
+        for _ in range(2):
+            response=await self.client.chat.completions.create(model=self.model,messages=messages,max_tokens=768,temperature=.7,**options)
+            raw=response.choices[0].message.content or ''
+            try:
+                return self.read_story_reply(raw,snapshot,text)
+            except (json.JSONDecodeError,ValueError) as exc:
+                last=exc
+        raise last

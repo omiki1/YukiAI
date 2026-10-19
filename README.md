@@ -38,6 +38,7 @@
 | `scripts/install_textractor.py` | 校验并准备官方取词工具，二进制仅留在本机 |
 | `scripts/yuki_window.py` | 透明桌面窗口 |
 | `scripts/audit_upload.py` | 提交前的源码范围及敏感信息检查 |
+| `docs/SYSTEM.md` | 项目结构、阅读记忆和一次提问的完整说明 |
 
 ## 本地准备
 

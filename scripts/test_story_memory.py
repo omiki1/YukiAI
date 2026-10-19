@@ -213,6 +213,23 @@ class StoreTests(unittest.TestCase):
         self.assertIn('旧图书馆', packed)
         self.assertLess(len(packed), 5000)
 
+    def test_a_shared_short_fragment_does_not_open_another_passage(self):
+        lines = ['旁白：旧图书馆的灯一直亮着。', '旁白：他放下书。', '旁白：第二天，食堂里的灯还亮着。']
+        lines += [f'旁白：食堂窗口的灯照着第{i}号。' for i in range(4, 12)]
+        lines.append('旁白：与此同时，操场起了风。')
+        lines += [f'旁白：操场只有风声{i}。' for i in range(13, 22)]
+        self.ingest('\n'.join(lines))
+        snapshot = self.store.snapshot('旧图书馆的灯', self.store.epoch())
+        texts = [event['text'] for event in snapshot.events]
+        self.assertTrue(any('旧图书馆' in text for text in texts))
+        self.assertFalse(any('食堂' in text for text in texts))
+
+    def test_story_reply_json_can_be_recovered(self):
+        raw = '先说结论。\n{"text":"柜台上温着酒。","emotion":"serious","answer_type":"chat","evidence_ids":[]}\n'
+        data = TextChat.load_json_object(raw)
+        self.assertEqual(data['text'], '柜台上温着酒。')
+        self.assertEqual(TextChat.decode(raw)['emotion'], 'serious')
+
     def test_novel_chapters_keep_unread_text_out_and_notice_speech(self):
         self.store.create_run('短章', '试读', self.store.epoch(), 'novel')
         self.ingest('第一章\n柜台上温着酒。\n孔乙己说道，“不多了，我已经不多了。”')
