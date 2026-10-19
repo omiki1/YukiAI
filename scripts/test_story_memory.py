@@ -249,6 +249,15 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(progress['verdict'], 'looking_back')
         self.assertIn(str(snapshot.focus_position), progress['detail'])
 
+    def test_pronoun_follows_a_name_repeated_in_narration(self):
+        lines = ['第一章', '阿禾把钱留下来。', '阿禾不想抽烟。', '阿禾决定去拉车。', '阿禾晚上也不休息。',
+                 '阿禾看着自己的手。', '阿禾又想起那辆车。', '阿禾觉得还差得远。', '阿禾还是要自己的车。']
+        lines += ['旁白：第二天，街上只剩下风。'] + [f'旁白：风声又响了第{i}遍。' for i in range(1, 8)]
+        self.ingest('\n'.join(lines))
+        snapshot = self.store.snapshot('他为什么非要自己的车', self.store.epoch())
+        self.assertEqual(snapshot.referent, '阿禾')
+        self.assertTrue(any('自己的车' in event['text'] for event in snapshot.events))
+
     def test_pronoun_opens_the_latest_speaker_when_the_current_scene_has_none(self):
         lines = ['美咲：我不会再理你了。', '旁白：她把信留在桌上。', '旁白：第二天，操场起了风。']
         lines += [f'旁白：风声又响了第{i}遍。' for i in range(4, 16)]

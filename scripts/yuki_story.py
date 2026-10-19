@@ -65,12 +65,21 @@ def clip(text, limit):
     return text if len(text) <= limit else text[:limit - 1] + '…'
 
 
+QUESTION_CUES = (
+    (('长什么样', '长相', '模样', '外貌', '长得', '什么样', '什麼樣', '長相'),
+     ('脸', '眼', '眉', '头', '身材', '身量', '疤', '臉', '頭', '身量', '鼻子')),
+)
+
+
 def question_terms(question):
     terms = set(re.findall(r'[a-z0-9_]{2,}', (question or '').lower()))
     for phrase in re.findall(r'[\u3400-\u9fff]+', question or ''):
         for size in (2, 3, 4):
             if len(phrase) >= size:
                 terms.update(phrase[index:index + size] for index in range(len(phrase) - size + 1))
+    for keys, words in QUESTION_CUES:
+        if any(key in (question or '') for key in keys):
+            terms.update(words)
     return terms - STOPWORDS
 
 
@@ -396,8 +405,45 @@ def has_pronoun(question):
     return any(token in (question or '').replace('其他', '') for token in ('她', '他'))
 
 
+NARRATION_STOP = {
+    '自己', '他们', '她们', '我们', '你们', '没有', '可是', '可以', '什么', '时候', '知道', '到了',
+    '一个', '这个', '那个', '因为', '所以', '但是', '如果', '已经', '还是', '就是', '不是', '只是',
+    '于是', '然后', '现在', '今天', '心里', '觉得', '仿佛', '似乎', '这样', '那么', '这么', '怎么',
+    '那里', '这里', '出来', '进去', '起来', '不能', '他们', '她們', '他們', '沒有', '可是', '可以',
+    '什麼', '時候', '知道', '已經', '還是', '就是', '不是', '只是', '於是', '然後', '現在', '今天',
+    '心裡', '覺得', '不能', '車夫', '洋車', '他的', '的車', '輛車',
+}
+
+
+def dominant_narration_name(scenes):
+    """Novels often never mark a speaker. A name repeated far more than other words can fill 他/她."""
+    def tally(text):
+        counts = {}
+        for index in range(len(text) - 1):
+            token = text[index:index + 2]
+            if token in NARRATION_STOP or not re.fullmatch(r'[\u3400-\u9fff]{2}', token):
+                continue
+            if token[0] in '的了是在着著与與把被就也都还還不' or token[1] in '的了是在着著':
+                continue
+            counts[token] = counts.get(token, 0) + 1
+        return counts
+
+    blobs = [''.join((event.get('text') or '') for event in scene) for scene in scenes[-2:]]
+    counts = tally(''.join(blobs))
+    if not counts or max(counts.values()) < 6:
+        counts = tally(''.join(''.join((event.get('text') or '') for event in scene) for scene in scenes))
+    if not counts:
+        return '', False
+    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    best, best_count = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else 0
+    if best_count < 6:
+        return '', False
+    return best, bool(second and best_count < second + 3)
+
+
 def resolve_pronoun(question, scenes, people):
-    """她/他 points at the latest scene that has one clear speaker. Names in the question win."""
+    """她/他 points at the latest clear speaker, or the repeated name in narration."""
     if any(name and name in (question or '') for name in people):
         return '', False
     if any(alias and alias in (question or '') for person in people.values() for alias in person['aliases']):
@@ -417,7 +463,7 @@ def resolve_pronoun(question, scenes, people):
         if len(speakers) == 1:
             return speakers[0], False
         return last, True
-    return '', False
+    return dominant_narration_name(scenes)
 
 
 def choose_characters(people, question, working, referent=''):
@@ -756,7 +802,7 @@ class StoryStore:
                     if CHAPTER_RE.match(line):
                         event['kind'] = 'chapter'
                     else:
-                        match = re.match(r'^([^：:\n]{1,30})[：:]\s*(.+)$', line) or re.match(r'^【([^】\n]{1,30})】\s*(.+)$', line)
+                        match = re.match(r'^([\u3400-\u9fff·]{1,8})[：:]\s*(.+)$', line) or re.match(r'^【([^】\n]{1,8})】\s*(.+)$', line)
                         said = SAID_RE.match(line)
                         if match:
                             name, content = match.groups()
