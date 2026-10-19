@@ -9,7 +9,7 @@ from uuid import uuid4
 import httpx
 from fastapi.testclient import TestClient
 
-from scripts.yuki_chat import TextChat
+from scripts.yuki_chat import TextChat, ground_story_answer
 from scripts.yuki_config import ConfigStore
 from scripts.yuki_server import create_app
 from scripts.yuki_story import StoryStore, StoryConflict
@@ -95,6 +95,13 @@ class StoreTests(unittest.TestCase):
         self.assertNotIn('红色信封', serialized)
         self.assertIn('等雨停', serialized)
         self.assertIn('图书室', serialized)
+        memory = json.dumps({'scenes': snapshot.scenes, 'characters': snapshot.characters}, ensure_ascii=False)
+        self.assertNotIn('红色信封', memory)
+        self.assertNotIn('旧钟楼', memory)
+        self.assertIn('图书室', memory)
+        panel = json.dumps(self.store.view()['active']['memory'], ensure_ascii=False)
+        self.assertNotIn('红色信封', panel)
+        self.assertIn('图书室', panel)
         # Original A data remains available only when explicitly selecting its route.
         self.store.select_branch(a_branch, state['epoch'])
         self.assertIn('红色信封', json.dumps(self.store.view()['active'], ensure_ascii=False))
@@ -158,6 +165,81 @@ class StoreTests(unittest.TestCase):
         for invalid in ('  ', '\n'.join(['一句话'] * 201), '字' * 2001):
             with self.assertRaises(ValueError):
                 self.store.parse(invalid)
+        bracket = self.store.parse('【美咲】昨晚我没有离开。')
+        self.assertEqual((bracket[0]['speaker'], bracket[0]['kind'], bracket[0]['text']), ('美咲', 'dialogue', '昨晚我没有离开。'))
+
+    def test_recent_scene_keeps_its_lines_and_keyword_finds_an_earlier_scene(self):
+        lines = ['旁白：旧图书馆的灯一直亮着。'] + [f'旁白：走廊里只有第{i}盏灯。' for i in range(2, 51)]
+        self.ingest('\n'.join(lines))
+        recent = self.store.snapshot('刚才那段', self.store.epoch())
+        positions = [event['position'] for event in recent.events]
+        self.assertIn(50, positions)
+        self.assertIn(41, positions)
+        self.assertNotIn(1, positions)
+        self.assertGreaterEqual(len(positions), 10)
+        earlier = self.store.snapshot('旧图书馆的灯', self.store.epoch())
+        found = [event['position'] for event in earlier.events]
+        self.assertIn(1, found)
+        self.assertIn(50, found)
+        self.assertNotIn(20, found)
+        self.assertTrue(any('旧图书馆' in scene['summary'] for scene in earlier.scenes))
+
+    def test_short_new_scene_still_includes_the_scene_just_finished(self):
+        lines = ['旁白：旧图书馆的灯一直亮着。'] + [f'旁白：第{i}页笔记。' for i in range(2, 11)]
+        lines += ['A. 合上笔记', '旁白：雨还在下。', '美咲：我们走吧。']
+        self.ingest('\n'.join(lines))
+        snapshot = self.store.snapshot('刚才那段', self.store.epoch())
+        text = json.dumps([event['text'] for event in snapshot.events], ensure_ascii=False)
+        self.assertIn('旧图书馆', text)
+        self.assertIn('我们走吧', text)
+        self.assertGreaterEqual(len(snapshot.scenes), 2)
+
+    def test_character_claims_stay_distinct_from_narration(self):
+        self.ingest('美咲：昨晚我没有离开宿舍。\n美咲：我叫小咲。\n旁白：门卫看见美咲午夜出了校门。')
+        snapshot = self.store.snapshot('小咲有没有离开', self.store.epoch())
+        person = next(item for item in snapshot.characters if item['name'] == '美咲')
+        self.assertIn('小咲', person['aliases'])
+        self.assertTrue(any('没有离开' in item['text'] for item in person['claims']))
+        self.assertTrue(any('午夜' in item['text'] for item in person['witnessed']))
+        self.assertTrue(all('没有离开' not in item['text'] for item in person['witnessed']))
+        self.assertNotIn('小咲', [item['name'] for item in snapshot.characters])
+        visible = self.store.view()['active']['memory']['characters']
+        self.assertEqual(visible[0]['name'], '美咲')
+        self.assertIn('小咲', visible[0]['aliases'])
+
+    def test_spoiler_claims_are_dropped_unless_the_reading_already_contains_them(self):
+        self.ingest(COMMON)
+        snapshot = self.store.snapshot('美咲', self.store.epoch())
+        evidence = snapshot.events[1]['id']
+        mixed = ground_story_answer({
+            'text': '美咲提议先在走廊等雨。其实她的真实身份是校长，这是真结局。',
+            'emotion': 'serious', 'answer_type': 'analysis', 'evidence_ids': [evidence]}, snapshot, '美咲')
+        self.assertIn('走廊', mixed['text'])
+        self.assertNotIn('校长', mixed['text'])
+        self.assertNotIn('真结局', mixed['text'])
+        self.assertEqual(mixed['answer_type'], 'analysis')
+        self.assertEqual(mixed['evidence_ids'], [evidence])
+        blocked = ground_story_answer({
+            'text': '选A会进入钟楼。', 'emotion': 'happy', 'answer_type': 'analysis', 'evidence_ids': [evidence]}, snapshot, '怎么选')
+        self.assertEqual(blocked['answer_type'], 'uncertain')
+        self.assertEqual(blocked['evidence_ids'], [])
+        self.assertNotIn('钟楼', blocked['text'])
+        self.ingest('旁白：美咲说这不是真结局。')
+        allowed = self.store.snapshot('真结局', self.store.epoch())
+        kept = ground_story_answer({
+            'text': '她明确说这不是真结局。', 'emotion': 'neutral', 'answer_type': 'analysis',
+            'evidence_ids': [allowed.events[-1]['id']]}, allowed, '真结局')
+        self.assertIn('真结局', kept['text'])
+        self.assertEqual(kept['answer_type'], 'analysis')
+        comfort = ground_story_answer({
+            'text': '这句话其实是在安慰她。后来会明白的。', 'emotion': 'neutral', 'answer_type': 'chat', 'evidence_ids': []}, snapshot, '这句话')
+        self.assertIn('安慰', comfort['text'])
+        self.assertIn('后来会明白', comfort['text'])
+        self.assertEqual(comfort['answer_type'], 'chat')
+        direct = ground_story_answer({
+            'text': '其实是校长。', 'emotion': 'surprise', 'answer_type': 'analysis', 'evidence_ids': [evidence]}, snapshot, '她是谁')
+        self.assertEqual(direct['answer_type'], 'uncertain')
+        self.assertNotIn('校长', direct['text'])
 
 
 class StoryApiTests(unittest.TestCase):
@@ -204,6 +286,27 @@ class StoryApiTests(unittest.TestCase):
         result = self.client.post('/api/chat', json={'text':'继续','session_id':'story','story_epoch':self.state['epoch']})
         self.assertEqual(result.status_code, 502)
         self.assertEqual(self.client.get('/api/story').json()['active']['messages'], [])
+
+    def test_api_downgrades_spoiler_before_saving(self):
+        body = {'epoch': self.state['epoch'], 'run_id': self.state['active']['id'], 'text': COMMON,
+                'request_id': 'api-import-spoiler', 'confirmed_read': True}
+        self.assertEqual(self.client.post('/api/story/import', json=body).status_code, 200)
+
+        async def spoil(text, snapshot):
+            return {'text': '其实她的真实身份是校长。', 'emotion': 'surprise', 'answer_type': 'analysis',
+                    'evidence_ids': [snapshot.events[-1]['id']]}
+
+        self.fixture.complete_story = spoil
+        result = self.client.post('/api/chat', json={'text': '美咲是谁', 'session_id': 'story', 'story_epoch': body['epoch']})
+        self.assertEqual(result.status_code, 200)
+        payload = result.json()
+        self.assertEqual(payload['answer_type'], 'uncertain')
+        self.assertEqual(payload['evidence'], [])
+        self.assertNotIn('校长', payload['text'])
+        stored = self.client.get('/api/story').json()['active']
+        self.assertNotIn('校长', json.dumps(stored['messages'], ensure_ascii=False))
+        self.assertEqual(stored['messages'][-1]['answer_type'], 'uncertain')
+        self.assertIn('美咲', json.dumps(stored['memory'], ensure_ascii=False))
 
 
 class AsyncStoryTests(unittest.IsolatedAsyncioTestCase):
@@ -302,6 +405,10 @@ class AsyncStoryTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('红色信封', serialized)
             self.assertIn('图书室', serialized)
             self.assertNotIn('图书室', payloads[0]['messages'][0]['content'])
+            material = payloads[0]['messages'][1]['content']
+            self.assertIn('"scenes"', material)
+            self.assertIn('"claims"', material)
+            self.assertNotIn('旧钟楼', material)
             self.assertEqual(payloads[0]['messages'][1]['role'], 'user')
             for invalid in ([], [True], [999999]):
                 evidence_ids = invalid

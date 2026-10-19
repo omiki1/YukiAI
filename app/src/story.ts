@@ -30,7 +30,7 @@ export class StoryPanel{
  get epoch(){return this.state?.epoch??null;}
  get active(){return this.state?.active??null;}
  async load(){const generation=++this.generation;const data=await api('story');if(generation!==this.generation)return;
-  const signature=(state:any)=>JSON.stringify([state?.epoch,state?.runs,state?.active?.position,state?.active?.messages,state?.active?.bookmarks,state?.active?.branches]);
+  const signature=(state:any)=>JSON.stringify([state?.epoch,state?.runs,state?.active?.position,state?.active?.messages,state?.active?.bookmarks,state?.active?.branches,state?.active?.memory]);
   if(!this.state||signature(data)!==signature(this.state))this.apply(data);
  }
  open(){this.opening();$('story-panel').hidden=false;$('story-toggle').setAttribute('aria-expanded','true');$('story-close').focus();this.load().catch(e=>this.message(e.message,true));}
@@ -45,8 +45,15 @@ export class StoryPanel{
   $('story-position').textContent=active?active.title+' · '+active.branch_name+' · 已读 '+active.position+' 句':'先建立一篇共读';
   $('story-position').title=$('story-position').textContent;
   if(boundary){this.allEvents();$('story-confirm').checked=false;this.message('阅读位置已切换，旧进度的回复已收起。');}
-  this.renderEvents();this.renderBookmarks();this.capture.contextChanged();this.changed(data,boundary);
+  this.renderEvents();this.renderMemory();this.renderBookmarks();this.capture.contextChanged();this.changed(data,boundary);
  }
+ private renderMemory(){const root=$('story-memory-body');root.replaceChildren();const note=document.createElement('p');note.className='story-note';note.textContent='按当前路线已读原文整理，不另调用模型。说辞和旁白分开记，其他路线不会出现在这里。';root.append(note);
+  const memory=this.active?.memory,scenes=memory?.scenes||[],people=memory?.characters||[];
+  if(!scenes.length&&!people.length){const empty=document.createElement('p');empty.className='story-empty';empty.textContent=this.active?'收录已读原文后，这里会按场景和人物收拢。':'先建立共读并收录已读原文。';root.append(empty);return;}
+  for(const scene of scenes){const block=document.createElement('div');block.className='story-memory-scene';const label=document.createElement('div');label.className='story-memory-label';label.textContent='第 '+scene.start+'–'+scene.end+' 句'+(scene.speakers?.length?' · '+scene.speakers.join('、'):'');const text=document.createElement('p');text.textContent=scene.summary;block.append(label,text);root.append(block);}
+  for(const person of people){const block=document.createElement('div');block.className='story-memory-person';const label=document.createElement('div');label.className='story-memory-label';label.textContent=person.name+(person.aliases?.length?' · 也叫'+person.aliases.join('、'):'');block.append(label);for(const claim of person.claims||[])block.append(this.memoryLine('说辞',claim));for(const line of person.witnessed||[])block.append(this.memoryLine('旁白',line));root.append(block);}
+ }
+ private memoryLine(kind:string,line:StoryEvidence){const row=document.createElement('div');row.className='story-memory-line';const text=document.createElement('span');text.textContent=kind+'：'+line.text;const button=document.createElement('button');button.type='button';button.className='story-position-button';button.textContent='看这句';button.onclick=()=>this.showEvidence([line]);row.append(text,button);return row;}
  private card(event:StoryEvidence,navigate=false){
   const card=document.createElement('article');card.className='story-event';card.dataset.eventId=String(event.id);
   const heading=document.createElement('div');heading.className='story-event-label';heading.textContent='第 '+event.position+' 句 · '+(event.kind==='choice'?'选项':event.speaker||'旁白');

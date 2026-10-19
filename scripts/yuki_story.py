@@ -30,6 +30,265 @@ class ReadingSnapshot:
     title: str = ''
     events: tuple = ()
     messages: tuple = ()
+    scenes: tuple = ()
+    characters: tuple = ()
+
+
+# Derived only from events already inside the current route prefix. No model call.
+SCENE_EVENT_LIMIT = 40
+WORKING_SCENE_SHORT = 8
+RAW_EVENT_LIMIT = 56
+RAW_BUDGET = 12000
+MESSAGE_BUDGET = 6000
+STOPWORDS = {'什么', '我们', '剧情', '之前', '刚才', '觉得', '可以', '现在', '怎么', '一下', '记得'}
+NAME = r'[\u3400-\u9fff]{2,4}'
+ALIAS_RE = re.compile(rf'(?:我叫|叫我|名叫|人称(?:她|他)?为|大家都叫(?:她|他)?)({NAME})')
+SELF_RE = re.compile(rf'我是({NAME})(?=[，。！？、\s]|$)')
+ALIAS_STOP = {'一个', '没有', '不是', '不会', '不能', '这个', '那个', '自己', '什么', '这里', '那里', '现在', '刚才',
+              '我们', '你们', '他们', '她们', '因为', '所以', '如果', '可是', '但是', '就是', '还是', '已经', '时候'}
+SCENE_BREAK = re.compile(r'^(?:【[^】\n]{1,16}】|场景\s*[:：]|地点\s*[:：]|时间\s*[:：])'
+                         r'|^(?:次日|翌日|第二天|几天后|数日后|与此同时|另一边|画面一转)')
+
+
+def clip(text, limit):
+    text = ' '.join((text or '').split())
+    return text if len(text) <= limit else text[:limit - 1] + '…'
+
+
+def question_terms(question):
+    terms = set(re.findall(r'[a-z0-9_]{2,}', (question or '').lower()))
+    for phrase in re.findall(r'[\u3400-\u9fff]+', question or ''):
+        terms.update(phrase[index:index + 2] for index in range(len(phrase) - 1))
+    return terms - STOPWORDS
+
+
+def event_score(event, terms, names=()):
+    blob = (event.get('speaker') or '') + (event.get('text') or '')
+    score = sum(term in blob.lower() for term in terms)
+    for name in names:
+        if name and len(name) >= 2 and name in blob:
+            score += 5
+    return score
+
+
+def extract_aliases(text):
+    found = []
+    for pattern in (ALIAS_RE, SELF_RE):
+        for match in pattern.finditer(text or ''):
+            name = match.group(1)
+            if name in ALIAS_STOP or name.startswith(('没有', '不是', '不会', '不能', '不要', '怎么')) or name in found:
+                continue
+            found.append(name)
+    return found
+
+
+def starts_scene(event):
+    return event['kind'] == 'narration' and bool(SCENE_BREAK.search((event.get('text') or '').strip()))
+
+
+def segment_scenes(events):
+    scenes, bucket = [], []
+
+    def close():
+        if bucket:
+            scenes.append(tuple(bucket))
+            bucket.clear()
+
+    for event in events:
+        if bucket and (len(bucket) >= SCENE_EVENT_LIMIT or starts_scene(event)):
+            close()
+        bucket.append(event)
+        if event['kind'] == 'choice':
+            close()
+    close()
+    return scenes
+
+
+def scene_speakers(events):
+    speakers = []
+    for event in events:
+        if event.get('speaker') and event['speaker'] not in speakers:
+            speakers.append(event['speaker'])
+    return speakers[:6]
+
+
+def scene_summary(events):
+    narration = next((event for event in events if event['kind'] == 'narration' and event.get('text', '').strip()), None)
+    last_narration = next((event for event in reversed(events) if event['kind'] == 'narration' and event.get('text', '').strip()), None)
+    dialogue = next((event for event in reversed(events) if event['kind'] == 'dialogue' and event.get('text', '').strip()), None)
+    choice = next((event for event in reversed(events) if event['kind'] == 'choice'), None)
+    bits = [f'第{events[0]["position"]}–{events[-1]["position"]}句']
+    speakers = scene_speakers(events)
+    if speakers:
+        bits.append('在场：' + '、'.join(speakers))
+    if narration:
+        bits.append('旁白：' + clip(narration['text'], 72))
+    if last_narration and last_narration is not narration:
+        bits.append('后来：' + clip(last_narration['text'], 72))
+    if dialogue:
+        bits.append((dialogue.get('speaker') or '对白') + '说：' + clip(dialogue['text'], 72))
+    if choice:
+        bits.append('选项：' + clip(choice['text'], 36))
+    bits.append(f'共{len(events)}句')
+    return '。'.join(bits)
+
+
+def scene_card(events):
+    return {'start': events[0]['position'], 'end': events[-1]['position'], 'speakers': scene_speakers(events),
+            'summary': scene_summary(events), 'lines': len(events)}
+
+
+def build_characters(events):
+    people = {}
+
+    def ensure(name):
+        if name not in people:
+            people[name] = {'name': name, 'aliases': [], 'claims': [], 'witnessed': []}
+        return people[name]
+
+    for event in events:
+        if event['kind'] == 'dialogue' and event.get('speaker'):
+            ensure(event['speaker'])
+    for event in events:
+        aliases = extract_aliases(event.get('text') or '')
+        if event['kind'] == 'dialogue' and event.get('speaker'):
+            person = ensure(event['speaker'])
+            person['claims'].append(event)
+            for alias in aliases:
+                if alias != event['speaker'] and alias not in person['aliases']:
+                    person['aliases'].append(alias)
+            continue
+        if event['kind'] != 'narration':
+            continue
+        known = []
+        for name, person in people.items():
+            if len(name) >= 2 and name in event['text'] and name not in known:
+                known.append(name)
+            for alias in person['aliases']:
+                if len(alias) >= 2 and alias in event['text'] and name not in known:
+                    known.append(name)
+        for alias in aliases:
+            already = any(alias == name or alias in person['aliases'] for name, person in people.items())
+            if already:
+                continue
+            if known:
+                host = people[known[-1]]
+                if alias not in host['aliases']:
+                    host['aliases'].append(alias)
+            else:
+                ensure(alias)
+                known.append(alias)
+        for name in known:
+            people[name]['witnessed'].append(event)
+    return people
+
+
+def mention_row(event, provided_ids, limit=90):
+    row = {'position': event['position'], 'text': clip(event.get('text') or '', limit)}
+    if provided_ids is None or event['id'] in provided_ids:
+        row['id'] = event['id']
+    return row
+
+
+def trim_mentions(events, terms, names, limit, provided_ids):
+    if not events:
+        return []
+    ranked = sorted(events, key=lambda event: (event_score(event, terms, names), event['position']), reverse=True)
+    picked = [event for event in ranked if event_score(event, terms, names)][:limit]
+    if len(picked) < min(limit, len(events)):
+        for event in reversed(events):
+            if event not in picked:
+                picked.append(event)
+            if len(picked) >= limit:
+                break
+    picked.sort(key=lambda event: event['position'])
+    return [mention_row(event, provided_ids) for event in picked]
+
+
+def ui_line(event):
+    return {'id': event['id'], 'position': event['position'], 'kind': event['kind'], 'speaker': event.get('speaker') or '',
+            'text': clip(event.get('text') or '', 80), 'raw_text': event.get('raw_text') or event.get('text') or ''}
+
+
+def present_memory(events):
+    """Short, route-local memory for the reading panel. Claims stay separate from narration."""
+    characters = []
+    for person in build_characters(events).values():
+        if not person['claims'] and not person['witnessed']:
+            continue
+        characters.append({'name': person['name'], 'aliases': person['aliases'][:3],
+                           'claims': [ui_line(event) for event in person['claims'][-2:]],
+                           'witnessed': [ui_line(event) for event in person['witnessed'][-2:]]})
+        if len(characters) == 12:
+            break
+    scenes = segment_scenes(events)
+    return {'scenes': [scene_card(scene) for scene in scenes[-4:]], 'characters': characters}
+
+
+def choose_characters(people, question, working):
+    selected = []
+
+    def add(name):
+        if name in people and name not in selected:
+            selected.append(name)
+
+    for name, person in people.items():
+        if name and name in question:
+            add(name)
+        if any(alias and alias in question for alias in person['aliases']):
+            add(name)
+    for event in working:
+        if event.get('speaker'):
+            add(event['speaker'])
+    if len(selected) <= 4:
+        return [people[name] for name in selected]
+    preferred = [name for name in selected if name in question or any(alias in question for alias in people[name]['aliases'])]
+    recent = []
+    for event in reversed(working):
+        if event.get('speaker') and event['speaker'] not in recent:
+            recent.append(event['speaker'])
+    ordered = []
+    for name in preferred + recent:
+        if name in people and name not in ordered:
+            ordered.append(name)
+    return [people[name] for name in ordered[:4]]
+
+
+def prompt_scenes(scenes, selected_people, terms):
+    if not scenes:
+        return []
+    chosen = []
+
+    def add(scene):
+        if scene not in chosen:
+            chosen.append(scene)
+
+    add(scenes[-1])
+    if len(scenes) > 1:
+        add(scenes[-2])
+    names = [person['name'] for person in selected_people]
+    names.extend(alias for person in selected_people for alias in person['aliases'])
+    scored = []
+    for scene in scenes[:-2]:
+        blob = scene_summary(scene) + ''.join((event.get('speaker') or '') + (event.get('text') or '') for event in scene)
+        score = sum(3 for name in names if name and name in blob) + sum(term in blob.lower() for term in terms)
+        if score:
+            scored.append((score, scene[-1]['position'], scene))
+    for _, _, scene in sorted(scored, reverse=True)[:3]:
+        add(scene)
+    chosen.sort(key=lambda scene: scene[0]['position'])
+    return [scene_card(scene) for scene in chosen[:5]]
+
+
+def accept_event(event, chosen, used, budget):
+    if event['id'] in used or len(chosen) >= RAW_EVENT_LIMIT:
+        return budget
+    size = len(event.get('raw_text') or '') + 80
+    if size > budget:
+        return budget
+    chosen.append(event)
+    used.add(event['id'])
+    return budget - size
 
 
 class StoryStore:
@@ -213,7 +472,7 @@ class StoryStore:
                 if re.match(r'^(?:选项\s*[A-H一二三四五六]?|[A-H][.、．)）])', line):
                     event['kind'] = 'choice'
                 else:
-                    match = re.match(r'^([^：:\n]{1,30})[：:]\s*(.+)$', line)
+                    match = re.match(r'^([^：:\n]{1,30})[：:]\s*(.+)$', line) or re.match(r'^【([^】\n]{1,30})】\s*(.+)$', line)
                     if match:
                         name, content = match.groups()
                         event.update(speaker='' if name in ('旁白', '叙述') else name, text=content,
@@ -341,7 +600,8 @@ class StoryStore:
                 'more_before': events[0]['position'] if events and events[0]['position'] > 1 else None,
                 'messages': self._messages(db, run),
                 'bookmarks': [dict(row) for row in db.execute('SELECT id,name,position,branch_id FROM bookmarks WHERE run_id=? ORDER BY rowid DESC', (run['id'],))],
-                'branches': [{'id': row['id'], 'name': row['name'], 'tip': self._tip(db, row)} for row in db.execute('SELECT * FROM branches WHERE run_id=? ORDER BY rowid', (run['id'],))]}
+                'branches': [{'id': row['id'], 'name': row['name'], 'tip': self._tip(db, row)} for row in db.execute('SELECT * FROM branches WHERE run_id=? ORDER BY rowid', (run['id'],))],
+                'memory': present_memory(self._events(db, run))}
             return result
 
     def snapshot(self, question, expected=None):
@@ -353,27 +613,55 @@ class StoryStore:
                 raise StoryConflict('请刷新阅读进度后再提问。')
             run = self._run(db)
             events = self._events(db, run)
-            terms = set(re.findall(r'[a-z0-9_]{2,}|[\u3400-\u9fff]{2}', question.lower()))
-            # Overlapping bigrams find Chinese names without a new tokenizer/model dependency.
-            for phrase in re.findall(r'[\u3400-\u9fff]+', question):
-                terms.update(phrase[i:i+2] for i in range(len(phrase)-1))
-            terms -= {'什么', '我们', '剧情', '之前', '刚才', '觉得', '可以', '现在', '怎么', '一下', '记得'}
-            ranked = sorted(events, key=lambda event: (sum(term in (event['speaker'] + event['text']).lower() for term in terms), event['position']), reverse=True)
-            relevant = [event for event in ranked if any(term in (event['speaker']+event['text']).lower() for term in terms)][:8]
-            explicit = re.findall(r'第\s*(\d+)\s*[句条段]', question)
-            chosen, used, budget = [], set(), 8000
-            for event in ([event for event in events if str(event['position']) in explicit] + list(reversed(events[-4:])) + relevant):
-                size = len(event['raw_text']) + 80
-                if event['id'] not in used and size <= budget:
-                    chosen.append(event);used.add(event['id']);budget -= size
-            messages, budget = [], 6000
+            scenes = segment_scenes(events)
+            people = build_characters(events)
+            terms = question_terms(question)
+            working = ()
+            if scenes:
+                current = scenes[-1]
+                previous = scenes[-2] if len(scenes) > 1 else ()
+                # A short tail should still see the scene that just ended. "刚才" carries no keywords.
+                working = previous + current if len(current) < WORKING_SCENE_SHORT else current
+            selected_people = choose_characters(people, question, working)
+            focus_names = tuple(person['name'] for person in selected_people
+                                if person['name'] in question or any(alias in question for alias in person['aliases']))
+            explicit = set(re.findall(r'第\s*(\d+)\s*[句条段]', question or ''))
+            working_ids = {event['id'] for event in working}
+            earlier = [event for event in events if event['id'] not in working_ids]
+            relevant = [event for event in sorted(earlier, key=lambda event: (event_score(event, terms, focus_names), event['position']), reverse=True)
+                        if event_score(event, terms, focus_names)][:12]
+            extra = []
+            for person in selected_people:
+                names = (person['name'], *person['aliases'])
+                ranked = sorted(person['claims'], key=lambda event: (event_score(event, terms, names), event['position']), reverse=True)
+                matched = [event for event in ranked if event_score(event, terms, names)]
+                extra.extend(matched[:2] if matched else person['claims'][-2:])
+                if person['witnessed']:
+                    extra.append(person['witnessed'][-1])
+            chosen, used, budget = [], set(), RAW_BUDGET
+            pools = [[event for event in events if str(event['position']) in explicit], list(reversed(working)), extra, relevant]
+            for pool in pools:
+                for event in pool:
+                    budget = accept_event(event, chosen, used, budget)
+            provided = {event['id'] for event in chosen}
+            characters = []
+            for person in selected_people:
+                names = (person['name'], *person['aliases'])
+                card = {'name': person['name'], 'aliases': person['aliases'][:3],
+                        'claims': trim_mentions(person['claims'], terms, names, 4, provided),
+                        'witnessed': trim_mentions(person['witnessed'], terms, names, 3, provided)}
+                if card['claims'] or card['witnessed']:
+                    characters.append(card)
+            messages, budget = [], MESSAGE_BUDGET
             for message in reversed(self._messages(db, run)):
                 size = len(message['content'])
                 if size > budget:
                     break
-                messages.append({'role': message['role'], 'content': message['content']});budget -= size
+                messages.append({'role': message['role'], 'content': message['content']})
+                budget -= size
             return ReadingSnapshot(state['epoch'], run['id'], run['branch_id'], run['position'], run['chat_generation'],
-                                   run['title'], tuple(sorted(chosen, key=lambda event:event['position'])), tuple(reversed(messages)))
+                                   run['title'], tuple(sorted(chosen, key=lambda event: event['position'])), tuple(reversed(messages)),
+                                   tuple(prompt_scenes(scenes, selected_people, terms)), tuple(characters))
 
     def matches(self, snapshot):
         with self.connection() as db:

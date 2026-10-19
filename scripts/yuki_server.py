@@ -12,7 +12,7 @@ from pydantic import BaseModel,Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .yuki_history import HistoryStore
 from .yuki_config import ConfigStore,Configuration,ready
-from .yuki_chat import TextChat
+from .yuki_chat import TextChat,ground_story_answer
 from .yuki_speech import SpeechClient
 from .yuki_story import StoryStore,StoryConflict
 from .yuki_capture import CaptureService
@@ -321,6 +321,7 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
                 result=await task
                 if not story.matches(snapshot):raise StoryConflict('阅读进度已改变，上一条回复已收起，请重新提问。')
                 if snapshot.run_id:
+                    result=ground_story_answer(result,snapshot,text)
                     result['evidence']=story.append_exchange(snapshot,text,result)
                     result['story_position']=snapshot.position
                 else:store.append_exchange(data.session_id,text,result['text'],result['emotion'])
