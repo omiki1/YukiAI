@@ -1,5 +1,6 @@
 """Audit the exact Git index without printing secret values."""
 import json
+import hashlib
 from pathlib import Path
 import re
 import subprocess
@@ -13,10 +14,15 @@ CORE_FILES={'app/vendor/live2d/Core/'+x for x in ['live2dcubismcore.d.ts','LICEN
 SCRIPT_FILES.update({'scripts/yuki_memory.py','scripts/test_memory_management.py','scripts/verify_memory.cjs'})
 SCRIPT_FILES.update({'scripts/test_continuity.py','scripts/verify_continuity.cjs'})
 SCRIPT_FILES.update({'scripts/test_timeline.py','scripts/verify_timeline.cjs'})
+SCRIPT_FILES.add('scripts/verify_themes.cjs')
 SCRIPT_FILES.update({'scripts/yuki_characters.py','scripts/test_characters.py','scripts/verify_characters.cjs'})
 SCRIPT_FILES.update({'scripts/yuki_paths.py','scripts/build_alpha.py','scripts/test_delivery.py','scripts/verify_delivery.cjs'})
 OTHER_FILES={'docs/PUBLISHING.md','docs/SYSTEM.md','docs/WORKLOG.md','third_party/README.md','third_party/Open-LLM-VTuber-MIT.txt'}
 OTHER_FILES.add('docs/PRODUCT_ROADMAP.md')
+PUBLIC_UI_FONTS={'app/src/fonts/fusion-pixel-12-ui.woff2':{
+    'sha256':'ca8e020adbf7641a47c71e35ee1cfa0551f5efc48177c64b474dba741dfc6c30',
+    'license':'app/src/fonts/fusion-pixel-OFL.txt',
+    'license_sha256':'bc518cf64b8032c07690f33cc270c35c179255a6ac8efa7c165ebae7e8f76a63'}}
 EXTENSIONS={'.pem','.key','.p12','.pfx','.moc3','.png','.jpg','.jpeg','.webp','.kra','.psd','.ora','.zip','.wav','.mp3','.mp4','.onnx','.safetensors','.pt','.pth','.ckpt','.gguf'}
 PATTERNS=[rb'\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{40,})\b',
           rb'\bsk-(?:fish-|proj-)?[A-Za-z0-9_-]{20,}\b',
@@ -57,6 +63,8 @@ def main():
         mode,sha,stage=meta.split()
         entries.append((filename.decode('utf-8'),sha.decode(),mode))
     if not entries:raise SystemExit('No staged source files to audit.')
+    staged_paths={path for path,_,_ in entries}
+    font_licenses={path:git('show',':'+path) for path in {font['license'] for font in PUBLIC_UI_FONTS.values()} if path in staged_paths}
     request=''.join(sha+'\n' for _,sha,_ in entries).encode()
     batch=git('cat-file','--batch',input=request)
     cursor=0;issues=[];total=0
@@ -68,7 +76,16 @@ def main():
         if mode not in (b'100644',b'100755'):issues.append((path,'not a regular source file'))
         if Path(path).suffix.lower() in EXTENSIONS or path.endswith(('.model3.json','.exp3.json','.motion3.json')):
             issues.append((path,'model/media/private artifact'))
-        if b'\x00' in data:issues.append((path,'binary content'))
+        font=PUBLIC_UI_FONTS.get(path)
+        if font:
+            if len(data)>65536 or not data.startswith(b'wOF2') or hashlib.sha256(data).hexdigest()!=font['sha256']:
+                issues.append((path,'UI font differs from the reviewed subset'))
+            license_data=font_licenses.get(font['license'])
+            if license_data is None or hashlib.sha256(license_data).hexdigest()!=font['license_sha256']:
+                issues.append((path,'missing or changed staged font license'))
+        elif b'\x00' in data:issues.append((path,'binary content'))
+        if Path(path).suffix.lower() in ('.woff','.woff2','.ttf','.otf') and not font:
+            issues.append((path,'font outside the exact UI resource allowlist'))
         if any(value in data for value in secrets):issues.append((path,'matches a configured secret'))
         if any(re.search(pattern,data) for pattern in PATTERNS):issues.append((path,'credential-like content'))
         if path=='.env.example':

@@ -1,4 +1,5 @@
 import './style.css';
+import './theme';
 import './compat';
 import {Avatar} from './avatar';
 import {api} from './api';

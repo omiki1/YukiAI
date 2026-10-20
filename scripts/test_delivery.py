@@ -1,15 +1,17 @@
 """Delivery acceptance: independent paths, clean assets, and private-data exclusion."""
 import json
+import io
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from scripts.build_alpha import audit_bundle
+from scripts.build_alpha import audit_bundle, copy_ui_licenses
 from scripts.yuki_config import ConfigStore
 from scripts.yuki_paths import data_root, resource_root
 from scripts.yuki_server import create_app
@@ -74,6 +76,11 @@ print(json.dumps([str(ConfigStore(env={}).path),str(HistoryStore().directory),st
         folder=self.root/'bundle';folder.mkdir();(folder/'runtime.dll').write_bytes(b'x'*(1024*1024-4)+secret.encode())
         with self.assertRaises(ValueError):audit_bundle(folder,self.root)
 
+    def test_ui_font_license_is_copied_to_portable_bundle(self):
+        copy_ui_licenses(self.root)
+        source=resource_root()/'app/src/fonts/fusion-pixel-OFL.txt'
+        self.assertEqual((self.root/'dependency-licenses/fusion-pixel/OFL.txt').read_bytes(),source.read_bytes())
+
     @unittest.skipUnless(os.name=='nt','Windows resource paths')
     def test_non_ascii_runtime_path_refers_to_same_directory_without_moving_data(self):
         from scripts.yuki_window import qt_runtime_path
@@ -84,6 +91,58 @@ print(json.dumps([str(ConfigStore(env={}).path),str(HistoryStore().directory),st
         else:
             self.assertTrue(str(alias).isascii());self.assertTrue(alias.samefile(folder))
         self.assertEqual(marker.read_text(encoding='utf-8'),'unchanged')
+
+
+class UploadAuditTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
+        subprocess.run(['git','init','--quiet',str(self.root)],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        self.font_path='app/src/fonts/fusion-pixel-12-ui.woff2'
+        self.license_path='app/src/fonts/fusion-pixel-OFL.txt'
+        self.font=(resource_root()/self.font_path).read_bytes()
+        self.license=(resource_root()/self.license_path).read_bytes()
+
+    def tearDown(self):self.temp.cleanup()
+
+    def stage(self,path,data):
+        target=self.root/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
+        subprocess.run(['git','-C',str(self.root),'add','--',path],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+
+    def audit(self):
+        from scripts import audit_upload
+        output=io.StringIO()
+        with patch.object(audit_upload,'ROOT',self.root),redirect_stdout(output):
+            try:audit_upload.main()
+            except SystemExit:pass
+        return json.loads(output.getvalue())
+
+    def test_reviewed_font_with_exact_staged_license_is_allowed(self):
+        self.stage(self.font_path,self.font);self.stage(self.license_path,self.license)
+        self.assertTrue(self.audit()['passed'])
+
+    def test_font_replacement_cannot_use_the_binary_exception(self):
+        self.stage(self.font_path,self.font+b'changed');self.stage(self.license_path,self.license)
+        self.assertFalse(self.audit()['passed'])
+
+    def test_font_license_must_be_present_in_index_and_unchanged(self):
+        self.stage(self.font_path,self.font)
+        self.assertFalse(self.audit()['passed'])
+        self.stage(self.license_path,b'Not the reviewed license')
+        self.assertFalse(self.audit()['passed'])
+
+    def test_renamed_fonts_and_other_binary_assets_remain_blocked(self):
+        self.stage('app/src/fonts/other.woff2',self.font)
+        self.stage('app/src/renamed-model.bin',b'\x00private model fixture')
+        report=self.audit();self.assertFalse(report['passed'])
+        self.assertEqual({issue['path'] for issue in report['issues']},{'app/src/fonts/other.woff2','app/src/renamed-model.bin'})
+
+    def test_secret_scanning_still_runs_with_public_font_present(self):
+        secret='fixture-credential-not-for-public-upload'
+        (self.root/'.env.local').write_text('YUKI_LLM_API_KEY='+secret,encoding='utf-8')
+        self.stage(self.font_path,self.font);self.stage(self.license_path,self.license)
+        self.stage('app/src/example.ts',('const accidental='+repr(secret)).encode())
+        report=self.audit();self.assertFalse(report['passed']);self.assertEqual(report['configuredSecretValuesChecked'],1)
+        self.assertNotIn(secret,json.dumps(report))
 
 
 if __name__=='__main__':unittest.main()

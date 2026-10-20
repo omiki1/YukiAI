@@ -18,6 +18,9 @@
 !/app/vite.config.ts
 !/app/index.html
 !/app/src/
+/app/src/fonts/*
+!/app/src/fonts/fusion-pixel-12-ui.woff2
+!/app/src/fonts/fusion-pixel-OFL.txt
 !/app/vendor/
 /app/vendor/*
 !/app/vendor/live2d/
@@ -41,6 +44,7 @@
 !/scripts/verify_continuity.cjs
 !/scripts/test_timeline.py
 !/scripts/verify_timeline.cjs
+!/scripts/verify_themes.cjs
 !/scripts/yuki_characters.py
 !/scripts/yuki_paths.py
 !/scripts/build_alpha.py

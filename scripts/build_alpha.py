@@ -46,7 +46,14 @@ def audit_bundle(folder, private_root=ROOT):
     return {'passed':True,'files':files,'configured_secret_values_checked':len(secrets)}
 
 
+def copy_ui_licenses(bundle, source=ROOT):
+    notices=bundle/'dependency-licenses/fusion-pixel'
+    notices.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(source/'app/src/fonts/fusion-pixel-OFL.txt',notices/'OFL.txt')
+
+
 def finalize_bundle(bundle):
+    copy_ui_licenses(bundle)
     (bundle/'qt.conf').write_text('[Paths]\nPrefix = _internal/PyQt5/Qt5\n',encoding='utf-8')
     report=audit_bundle(bundle);output=bundle.parent
     archive=output/'YukiAI-Windows-Alpha.zip'
@@ -74,7 +81,9 @@ def main():
         if (not target.is_relative_to((ROOT/'artifacts').resolve()) or not (bundle/'YukiAI.exe').is_file()
                 or not (target/'index.html').is_file()):raise ValueError('Select an existing bundle inside this workspace artifacts directory.')
         previous=[file for file in target.rglob('*') if file.is_file()]
-        if any(file.suffix not in ('.html','.js','.css') for file in previous):raise ValueError('Unexpected existing UI files; use a full build.')
+        if any(file.suffix not in ('.html','.js','.css') and not
+               (file.suffix=='.woff2' and file.name.startswith('fusion-pixel-12-ui-')) for file in previous):
+            raise ValueError('Unexpected existing UI files; use a full build.')
         for file in previous:file.unlink()
         shutil.copytree(web,target,dirs_exist_ok=True)
         finalize_bundle(bundle)

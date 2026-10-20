@@ -1,0 +1,143 @@
+/* Yuki 主题层：经典（不设 data-theme）/ glass 磨砂玻璃 / paper 纸本衬线 / neon 夜间霓虹 / pixel 像素复古。只覆盖颜色、字体、圆角、阴影和动效，不改布局。 */
+html[data-theme=glass]{--t-bg:linear-gradient(160deg,#f6f3ffd9,#efe6ffcc);--t-solid:#f4f0ff;--t-border:#ffffffb3;--t-line:#b9addf55;--t-text:#2a2540;--t-muted:#6c6690;--t-accent:#7b6cf6;--t-on-accent:#fff;--t-field:#ffffff8c;--t-chip:#ffffff80;--t-chip-hover:#ffffffcc;--t-shadow:0 10px 32px #3b2a8026,0 1px 0 #fff8 inset;--t-blur:blur(18px) saturate(1.4);--t-font:"Microsoft YaHei UI","Yu Gothic UI",sans-serif;--t-title:Georgia,"Microsoft YaHei UI",serif;--t-radius:14px;--t-glow:none}
+html[data-theme=paper]{--t-bg:#f5efe3f7;--t-solid:#f5efe3;--t-border:#d8ccb4;--t-line:#d8ccb4;--t-text:#3b3226;--t-muted:#8a7a60;--t-accent:#9c3d2e;--t-on-accent:#fff;--t-field:#fbf7ee;--t-chip:#efe5d2;--t-chip-hover:#e7dabf;--t-shadow:0 6px 20px #3b322622;--t-blur:none;--t-font:"Source Han Serif SC","Noto Serif SC","Noto Serif CJK SC","Songti SC",SimSun,serif;--t-title:"Source Han Serif SC","Noto Serif SC","Noto Serif CJK SC",Georgia,serif;--t-radius:10px;--t-glow:none}
+html[data-theme=neon]{--t-bg:linear-gradient(165deg,#13142af5,#0d0e1ef5);--t-solid:#0f1020;--t-border:#2f3270;--t-line:#2f327099;--t-text:#dfe3ff;--t-muted:#8d92c4;--t-accent:#ff5fa2;--t-on-accent:#fff;--t-field:#181a33;--t-chip:#1d1f3d;--t-chip-hover:#272a55;--t-shadow:0 10px 32px #000a,0 0 0 1px #8fe3ff14;--t-blur:blur(10px);--t-font:"Microsoft YaHei UI","Yu Gothic UI",sans-serif;--t-title:"Segoe UI","Microsoft YaHei UI",sans-serif;--t-radius:12px;--t-glow:0 0 14px #ff5fa2aa;--t-cyan:#8fe3ff}
+
+/* 面板 */
+html[data-theme] .settings,html[data-theme] #story-panel,html[data-theme] .memories,html[data-theme] #quickstart>*,html[data-theme] .dialogue-tools{background:var(--t-bg);border:1px solid var(--t-border);border-radius:var(--t-radius);box-shadow:var(--t-shadow);color:var(--t-text);font-family:var(--t-font);backdrop-filter:var(--t-blur);-webkit-backdrop-filter:var(--t-blur);color-scheme:normal}
+html[data-theme=neon] .settings,html[data-theme=neon] #story-panel,html[data-theme=neon] .memories{color-scheme:dark}
+html[data-theme] .settings-header h1,html[data-theme] .story-header h1{font-family:var(--t-title);color:var(--t-text);letter-spacing:.5px}
+html[data-theme] .settings-header p,html[data-theme] .story-header p,html[data-theme] .settings-note,html[data-theme] .story-note,html[data-theme] .story-empty,html[data-theme] .story-event-label,html[data-theme] .story-footer p,html[data-theme] .memories header{color:var(--t-muted)}
+html[data-theme] .settings label,html[data-theme] #story-panel label,html[data-theme] .settings output{color:var(--t-text)}
+html[data-theme] .settings-header button,html[data-theme] #story-panel .story-header button,html[data-theme] .memories header button{color:var(--t-muted);background:transparent}
+html[data-theme] .story-footer,html[data-theme] .settings-footer{background:transparent;border-top:1px solid var(--t-line)}
+html[data-theme] .story-tabs,html[data-theme] .settings-tabs{border-bottom:1px solid var(--t-line)}
+html[data-theme] .settings-tabs button,html[data-theme] #story-panel .story-tabs button{color:var(--t-muted);background:transparent;transition:color .15s,border-color .2s}
+html[data-theme] .settings-tabs button[aria-pressed=true],html[data-theme] #story-panel .story-tabs button[aria-pressed=true]{color:var(--t-accent);border-bottom-color:var(--t-accent)}
+html[data-theme=neon] .settings-tabs button[aria-pressed=true],html[data-theme=neon] #story-panel .story-tabs button[aria-pressed=true]{color:var(--t-cyan);border-bottom-color:var(--t-cyan);text-shadow:0 0 8px #8fe3ff88}
+html[data-theme] .story-event,html[data-theme] .story-bookmark{border-bottom-color:var(--t-line)}
+html[data-theme] #story-panel hr{border-top-color:var(--t-line)}
+
+/* 表单 */
+html[data-theme] .settings input:not([type=checkbox]):not([type=range]),html[data-theme] .settings select,html[data-theme] #story-panel input:not([type=checkbox]):not([type=range]),html[data-theme] #story-panel select,html[data-theme] #story-panel textarea,html[data-theme] #composer{background:var(--t-field);color:var(--t-text);border:1px solid var(--t-border);border-radius:8px;font-family:var(--t-font)}
+html[data-theme] .settings input:focus,html[data-theme] .settings select:focus,html[data-theme] #story-panel input:focus,html[data-theme] #story-panel select:focus,html[data-theme] #story-panel textarea:focus{border-color:var(--t-accent)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--t-accent) 18%,transparent)}
+html[data-theme] .settings input::placeholder,html[data-theme] #story-panel input::placeholder,html[data-theme] #story-panel textarea::placeholder{color:var(--t-muted);opacity:.75}
+html[data-theme] input[type=range],html[data-theme] input[type=checkbox]{accent-color:var(--t-accent)}
+
+/* 按钮 */
+html[data-theme] .settings .secondary,html[data-theme] #story-panel button:not(.story-position-button),html[data-theme] .bubble-actions button{background:var(--t-chip);color:var(--t-text);border:1px solid var(--t-border);border-radius:8px;box-shadow:none;transition:background .15s,transform .15s,box-shadow .15s}
+html[data-theme] .settings .secondary:hover,html[data-theme] #story-panel button:not(.story-position-button):hover,html[data-theme] .bubble-actions button:hover{background:var(--t-chip-hover);color:var(--t-text);transform:translateY(-1px)}
+html[data-theme] #settings-save,html[data-theme] #story-import-submit,html[data-theme] #novel-import-submit{background:var(--t-accent)!important;color:var(--t-on-accent)!important;border-color:transparent!important;box-shadow:var(--t-glow)}
+html[data-theme] .settings .text-button,html[data-theme] #story-panel .story-position-button{color:var(--t-accent);background:transparent;border:0}
+html[data-theme=neon] .bubble-actions button,html[data-theme=neon] #story-panel .story-tabs button{color:var(--t-cyan)}
+html[data-theme] #story-panel .story-tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent}
+html[data-theme] #story-panel .story-header button{border:0}
+
+/* 对话气泡 */
+html[data-theme] #line{background:var(--t-solid);color:var(--t-text);border:1px solid var(--t-border);font-family:var(--t-font);box-shadow:var(--t-shadow);border-radius:var(--t-radius) var(--t-radius) 4px var(--t-radius)}
+html[data-theme=glass] #line{background:#f7f4ffeb}
+html[data-theme] #hint{background:var(--t-solid);color:var(--t-muted)}
+html[data-theme] .dialogue-tools button{color:var(--t-text);background:transparent;border:0}
+html[data-theme] .dialogue-tools button:hover{background:var(--t-chip-hover)}
+html[data-theme] .memories .memory strong,html[data-theme] .memories strong{color:var(--t-accent)}
+
+/* 窗口工具栏 */
+html[data-theme] .window-actions button{background:var(--t-solid);color:var(--t-text);border:1px solid var(--t-border);box-shadow:var(--t-shadow)}
+html[data-theme] .window-actions button:hover{background:var(--t-chip-hover)}
+html[data-theme] .drag-area{font-family:var(--t-title);color:var(--t-text);text-shadow:none}
+html[data-theme] .status-dot{background:var(--t-accent);box-shadow:0 0 6px var(--t-accent)}
+html[data-theme=neon] .status-dot{animation:yk-breathe 2.4s ease-in-out infinite}
+
+/* 动效：面板上浮、菜单弹出、切页轻移。只用 transform，动画被系统暂停时也不会让面板变透明。 */
+html[data-theme] .settings:not([hidden]),html[data-theme] #story-panel:not([hidden]),html[data-theme] .memories:not([hidden]){animation:yk-rise .2s cubic-bezier(.2,.8,.2,1)}
+html[data-theme] .dialogue-tools:not([hidden]){animation:yk-pop .14s ease-out;transform-origin:bottom right}
+html[data-theme] [data-pane]:not([hidden]),html[data-theme] [data-story-pane]:not([hidden]){animation:yk-fade .16s ease-out}
+@keyframes yk-rise{from{transform:translateY(8px) scale(.985)}to{transform:none}}
+@keyframes yk-pop{from{transform:scale(.92)}to{transform:none}}
+@keyframes yk-fade{from{transform:translateY(3px)}to{transform:none}}
+@keyframes yk-breathe{0%,100%{box-shadow:0 0 4px #ff5fa2}50%{box-shadow:0 0 11px #ff5fa2,0 0 2px #fff}}
+@media (prefers-reduced-motion:reduce){html[data-theme] *{animation:none!important;transition:none!important}}
+/* 剧情面板里的折叠块（接着上次读、共读手记、人物、时间线） */
+html[data-theme] #story-panel details,html[data-theme] #timeline-note-form{background:var(--t-field);border:1px solid var(--t-line);border-radius:10px}
+html[data-theme] #story-panel summary,html[data-theme] #timeline-count,html[data-theme] #continuity-count{color:var(--t-muted)}
+html[data-theme] #story-panel details[open]>summary{color:var(--t-accent)}
+html[data-theme] #continuity-form{border-top-color:var(--t-line)}
+html[data-theme] #story-panel .error,html[data-theme] .settings .error{color:#e0566b}
+
+/* 打磨：统一节奏与细节 */
+html[data-theme] .settings,html[data-theme] #story-panel,html[data-theme] .memories{top:80px}
+html[data-theme] .settings-header,html[data-theme] .story-header{padding:16px 18px 12px;border-bottom:1px solid var(--t-line)}
+html[data-theme] .settings-header h1,html[data-theme] .story-header h1{font-size:15px;font-weight:600;letter-spacing:.5px;line-height:1.3}
+html[data-theme] .settings-header p,html[data-theme] .story-header p{font-size:10.5px;color:var(--t-muted)}
+html[data-theme] .settings-header button,html[data-theme] #story-panel .story-header button,html[data-theme] .memories header button{width:28px;height:28px;border-radius:8px;font-size:18px;line-height:28px;color:var(--t-muted);transition:background .15s,color .15s}
+html[data-theme] .settings-header button:hover,html[data-theme] #story-panel .story-header button:hover,html[data-theme] .memories header button:hover{background:var(--t-chip);color:var(--t-text)}
+html[data-theme] .settings-body,html[data-theme] .story-content,html[data-theme] #history-lines,html[data-theme] .guide-content{scrollbar-width:thin;scrollbar-color:var(--t-line) transparent}
+html[data-theme] ::-webkit-scrollbar{width:6px;height:6px}html[data-theme] ::-webkit-scrollbar-thumb{background:var(--t-line);border-radius:6px}html[data-theme] ::-webkit-scrollbar-track{background:transparent}
+html[data-theme] input[type=range],html[data-theme] input[type=checkbox]{accent-color:var(--t-accent)!important}
+html[data-theme] .settings input:not([type=checkbox]):not([type=range]),html[data-theme] .settings select,html[data-theme] .story-picker select,html[data-theme] .story-picker button{height:34px;border-radius:calc(var(--t-radius) * .6)}
+html[data-theme] .settings input:focus,html[data-theme] .settings select:focus,html[data-theme] #story-panel input:focus,html[data-theme] #story-panel select:focus,html[data-theme] #story-panel textarea:focus{border-color:var(--t-accent)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--t-accent) 18%,transparent)!important}
+html[data-theme] button:focus-visible{outline:2px solid var(--t-accent);outline-offset:2px}
+html[data-theme] .settings label,html[data-theme] #story-panel label{font-size:11px;font-weight:600;color:var(--t-text);opacity:.85}
+html[data-theme] .settings-note{font-size:10.5px;line-height:1.7;color:var(--t-muted)}
+html[data-theme] .settings-footer,html[data-theme] .story-footer{padding:12px 18px;border-top:1px solid var(--t-line);background:transparent}
+html[data-theme] .settings-footer button{height:34px;padding:0 16px;border-radius:calc(var(--t-radius) * .6);font-weight:600;background:var(--t-accent);color:#fff;transition:filter .15s,transform .15s}
+html[data-theme] .settings-footer button:hover{filter:brightness(1.08);color:#fff;transform:translateY(-1px)}
+html[data-theme] .story-content details{border-radius:calc(var(--t-radius) * .6);transition:border-color .15s}
+html[data-theme] .story-content details:hover{border-color:color-mix(in srgb,var(--t-accent) 40%,var(--t-border))}
+html[data-theme] .window-actions button{transition:background .15s}
+
+/* 像素复古：直角、2px 硬边、无模糊阴影偏移一格，按下下沉。字体优先用本机已装的点阵字体，没有就回退等宽字体。 */
+html[data-theme=pixel]{--t-bg:#fff5f8;--t-solid:#fff5f8;--t-border:#4a3557;--t-line:#4a355733;--t-text:#3d2c4a;--t-muted:#86708f;--t-accent:#ff6f9c;--t-on-accent:#fff;--t-field:#fff;--t-chip:#ffe3ee;--t-chip-hover:#ffd0e1;--t-shadow:4px 4px 0 #4a3557;--t-blur:none;--t-font:"Microsoft YaHei UI","Yu Gothic UI",sans-serif;--t-title:"YukiPixel","Microsoft YaHei UI",monospace;--t-radius:0px;--t-glow:none}
+html[data-theme=pixel] .settings,html[data-theme=pixel] #story-panel,html[data-theme=pixel] .memories,html[data-theme=pixel] .dialogue-tools,html[data-theme=pixel] #line{border:2px solid var(--t-border)!important;border-radius:0!important;-webkit-font-smoothing:none;font-smooth:never}
+html[data-theme=pixel] .settings-header,html[data-theme=pixel] .story-header{background:repeating-linear-gradient(90deg,#ffe3ee 0 4px,#ffd6e5 4px 8px);border-bottom:2px solid var(--t-border)}
+html[data-theme=pixel] .settings-footer,html[data-theme=pixel] .story-footer{border-top:2px solid var(--t-border)}
+html[data-theme=pixel] .settings input:not([type=checkbox]):not([type=range]),html[data-theme=pixel] .settings select,html[data-theme=pixel] #story-panel input:not([type=checkbox]):not([type=range]),html[data-theme=pixel] #story-panel select,html[data-theme=pixel] #story-panel textarea,html[data-theme=pixel] #composer,html[data-theme=pixel] .story-content details{border:2px solid var(--t-border)!important;border-radius:0!important;box-shadow:inset 2px 2px 0 #0000000f}
+html[data-theme=pixel] .settings input:focus,html[data-theme=pixel] .settings select:focus,html[data-theme=pixel] #story-panel input:focus,html[data-theme=pixel] #story-panel select:focus,html[data-theme=pixel] #story-panel textarea:focus{border-color:var(--t-accent)!important;box-shadow:2px 2px 0 var(--t-accent)!important}
+html[data-theme=pixel] .settings .secondary,html[data-theme=pixel] #story-panel button:not(.story-position-button):not([data-story-tab]),html[data-theme=pixel] .bubble-actions button,html[data-theme=pixel] .settings-footer button,html[data-theme=pixel] .window-actions button,html[data-theme=pixel] .settings-header button,html[data-theme=pixel] #story-panel .story-header button{border:2px solid var(--t-border)!important;border-radius:0!important;box-shadow:2px 2px 0 var(--t-border)!important;transition:transform 80ms steps(1),box-shadow 80ms steps(1)!important;filter:none!important}
+html[data-theme=pixel] .settings .secondary:hover,html[data-theme=pixel] #story-panel button:hover,html[data-theme=pixel] .settings-footer button:hover,html[data-theme=pixel] .bubble-actions button:hover{transform:none!important}
+html[data-theme=pixel] button:active{transform:translate(2px,2px)!important;box-shadow:0 0 0 var(--t-border)!important}
+html[data-theme=pixel] .settings-footer button{background:var(--t-accent)}
+html[data-theme=pixel] .window-actions button{background:#fff5f8;color:#4a3557}
+html[data-theme=pixel] .settings-tabs button[aria-pressed=true],html[data-theme=pixel] #story-panel .story-tabs button[aria-pressed=true]{border-bottom:4px solid var(--t-accent)}
+html[data-theme=pixel] #line{background:#fff5f8;box-shadow:4px 4px 0 #4a3557}
+html[data-theme=pixel] ::-webkit-scrollbar{width:8px}html[data-theme=pixel] ::-webkit-scrollbar-thumb{background:#4a3557;border-radius:0}
+html[data-theme=pixel] .status-dot{border-radius:0;width:6px;height:6px;box-shadow:none;background:var(--t-accent)}
+html[data-theme=pixel] input[type=range]{accent-color:var(--t-accent)!important}
+html[data-theme=pixel] *{animation-timing-function:steps(4,end)!important}
+html[data-theme] .story-picker{padding-top:12px}
+
+/* 像素字体：Fusion Pixel 12px（OFL，见 fonts/fusion-pixel-OFL.txt），只裁剪了界面用到的字。只用在标题、按钮、标签和页签上，正文和 Yuki 的回答保持普通字体。字号只用 12 和 24，保证点阵清晰。 */
+@font-face{font-family:"YukiPixel";src:url("./fonts/fusion-pixel-12-ui.woff2") format("woff2");font-display:swap}
+html[data-theme=pixel] .settings-header h1,html[data-theme=pixel] .story-header h1,html[data-theme=pixel] .memories header{font-family:var(--t-title);font-size:24px;font-weight:400;letter-spacing:0;line-height:1.2}
+html[data-theme=pixel] button,html[data-theme=pixel] .settings label,html[data-theme=pixel] #story-panel label,html[data-theme=pixel] .settings output,html[data-theme=pixel] .drag-area,html[data-theme=pixel] .story-tabs button,html[data-theme=pixel] .settings-tabs button,html[data-theme=pixel] .story-content summary{font-family:var(--t-title)!important;font-size:12px!important;font-weight:400!important;letter-spacing:0!important;opacity:1}
+html[data-theme=pixel] .settings,html[data-theme=pixel] #story-panel,html[data-theme=pixel] .memories{background:var(--t-bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='1' height='1' fill='%234a355714'/%3E%3C/svg%3E")}
+
+/* Cards and evidence must keep readable foregrounds in every theme. */
+html[data-theme] .timeline-card,html[data-theme] #story-memory,html[data-theme] .story-memory-scene.current,html[data-theme] .memory-preview,html[data-theme] #character-preview{background:var(--t-field);border-color:var(--t-line);color:var(--t-text)}
+html[data-theme] .timeline-card.note{background:var(--t-solid);border-color:var(--t-accent)}
+html[data-theme] .timeline-card.choice{background:var(--t-chip);border-color:var(--t-accent)}
+html[data-theme] .timeline-card.statement{border-left-color:var(--t-accent)}
+html[data-theme] .timeline-card h3,html[data-theme] .timeline-card .timeline-excerpt,html[data-theme] .memory-preview p{color:var(--t-text)}
+html[data-theme] .timeline-card .timeline-meta,html[data-theme] .timeline-card .timeline-people,html[data-theme] .timeline-card .timeline-caveat,html[data-theme] .timeline-excerpt span,html[data-theme] .story-memory-label,html[data-theme] .continuity-item .continuity-label,html[data-theme] .character-item .character-label,html[data-theme] .timeline-count,html[data-theme] .memory-item p{color:var(--t-muted)}
+html[data-theme] .timeline-card .timeline-note-state,html[data-theme] .timeline-location{color:var(--t-accent)}
+html[data-theme] .timeline-card:before{background:var(--t-accent);border-color:var(--t-solid)}
+html[data-theme=pixel] .timeline-card{border:2px solid var(--t-border);border-radius:0;box-shadow:2px 2px 0 var(--t-border)}
+
+@supports not (color:color-mix(in srgb,red,blue)){
+ html[data-theme]:not([data-theme=pixel]) .settings input:focus,html[data-theme]:not([data-theme=pixel]) .settings select:focus,html[data-theme]:not([data-theme=pixel]) #story-panel input:focus,html[data-theme]:not([data-theme=pixel]) #story-panel select:focus,html[data-theme]:not([data-theme=pixel]) #story-panel textarea:focus{box-shadow:0 0 0 3px var(--t-line)!important}
+}
+
+/* Preserve spacing in Qt5, whose browser predates flex gap. */
+.no-flex-gap .window-actions>button+button{margin-left:3px}
+.no-flex-gap .window-bar>*+*{margin-left:12px}
+.no-flex-gap .drag-area>*+*{margin-left:6px}
+.no-flex-gap .settings-tabs>button+button{margin-left:14px}
+.no-flex-gap .story-tabs>button+button{margin-left:6px}
+.no-flex-gap .bubble-actions>button+button{margin-left:4px}
+.no-flex-gap .dialogue>*+*{margin-top:5px}
+.no-flex-gap #send{margin-left:6px}
+.no-flex-gap .story-picker>*+*,.no-flex-gap .story-inline>*+*{margin-left:7px}
+.no-flex-gap .timeline-actions>button+button,.no-flex-gap .continuity-actions>button+button,.no-flex-gap .memory-actions>button+button{margin-left:5px}
+.no-flex-gap .timeline-fields>label+label{margin-left:7px}
+.no-flex-gap .continuity-fields>label+label{margin-left:8px}
+.no-flex-gap .settings-footer>button{margin-left:14px}

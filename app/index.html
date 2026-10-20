@@ -89,7 +89,7 @@
       <nav class="settings-tabs" aria-label="设置分类"><button type="button" data-tab="appearance" aria-pressed="true">外观</button><button type="button" data-tab="llm" aria-pressed="false">聊天接口</button><button type="button" data-tab="voice" aria-pressed="false">语音接口</button></nav>
       <form id="settings-form" autocomplete="off">
         <div class="settings-body">
-          <div data-pane="appearance"><label for="avatar-scale">角色大小 <output id="scale-value">85%</output></label><input id="avatar-scale" type="range" min="60" max="110" step="1" value="85"><p class="settings-note">拖动即可预览，保存后下次打开也会记住。</p><button id="scale-reset" class="text-button" type="button">恢复推荐大小</button></div>
+          <div data-pane="appearance"><label for="theme-select">界面主题</label><select id="theme-select"><option value="pixel">像素复古（默认）</option><option value="glass">磨砂玻璃（柔和）</option><option value="paper">纸本衬线（安静）</option><option value="neon">夜间霓虹（游戏感）</option><option value="classic">经典（原来的样子）</option></select><p class="settings-note">选中立即生效，并在本机记住。</p><label for="avatar-scale">角色大小 <output id="scale-value">85%</output></label><input id="avatar-scale" type="range" min="60" max="110" step="1" value="85"><p class="settings-note">拖动即可预览，保存后下次打开也会记住。</p><button id="scale-reset" class="text-button" type="button">恢复推荐大小</button></div>
           <div data-pane="llm" hidden>
             <p class="settings-note">支持 OpenAI 兼容的聊天服务，保存后立即生效。</p>
             <label for="llm-url">接口地址（Base URL）</label><input id="llm-url" type="url" placeholder="https://你的服务地址/v1" maxlength="500" spellcheck="false">

@@ -31,6 +31,8 @@ const provider=http.createServer(async(request,response)=>{
   page.on('pageerror',error=>errors.push(String(error)));page.on('request',request=>requests.push(request.url()));
   await page.route('**/*',route=>{if(!route.request().url().startsWith(origin)){external.push(route.request().url());return route.abort();}return route.continue();});
   await page.goto(origin,{waitUntil:'networkidle'});await page.waitForFunction(()=>window.yuki?.avatar.ready);
+  assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'pixel');
+  assert.equal(await page.evaluate(async()=>{const fonts=await document.fonts.load('12px YukiPixel');return fonts.length===1&&fonts[0].status==='loaded';}),true);
   assert.equal(await page.evaluate(()=>window.yuki.snapshot().mode),'paper');await page.locator('#quickstart').waitFor({state:'visible'});
   assert.equal(calls,0);assert.ok(await page.locator('#guide-discuss').isDisabled());await page.screenshot({path:path.join(out,'first-run-280.png'),omitBackground:true});
   await page.locator('#quickstart summary').click();await page.locator('#guide-example').click();await page.waitForFunction(()=>document.querySelector('#guide-status').textContent.includes('三句原文已保存')&&!document.querySelector('#guide-example').disabled&&document.querySelector('#guide-reading').textContent.includes('3 句'));
@@ -68,6 +70,9 @@ const provider=http.createServer(async(request,response)=>{
   const evaluate=async expression=>{const result=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw new Error(result.exceptionDetails.text);return result.result?.value;};
   await call('Runtime.enable');await wait(async()=>!!await evaluate('Boolean(window.yuki&&window.yuki.avatar.ready)'));
   const engine=await evaluate('navigator.userAgent');assert.equal(await evaluate('window.yuki.snapshot().mode'),'paper');
+  assert.equal(await evaluate('document.documentElement.dataset.theme'),'pixel');
+  assert.equal(await evaluate('document.fonts.load("12px YukiPixel").then(fonts=>fonts.length===1&&fonts[0].status==="loaded")'),true);
+  assert.ok(fs.existsSync(path.join(path.dirname(executable),'dependency-licenses/fusion-pixel/OFL.txt')));
   await evaluate('document.getElementById("guide-open").click()');
   await wait(async()=>!!await evaluate('!document.getElementById("guide-example").disabled'));
   await evaluate('document.getElementById("guide-example").click()');
@@ -83,7 +88,7 @@ const provider=http.createServer(async(request,response)=>{
   assert.equal(await evaluate('document.getElementById("stage").clientWidth>200&&document.getElementById("stage").clientHeight>200'),true);
   assert.equal(calls,2);assert.deepEqual(nativeErrors,[]);
   const nativeStopped=new Promise(resolve=>app.once('exit',resolve));await evaluate('document.getElementById("close").click()').catch(()=>{});await Promise.race([nativeStopped,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Qt app did not close')),5000))]);cdp.close();cdp=null;
-  const result={passed:true,actual_frozen_executable:true,developer_path_removed:true,first_run_guide:true,paper_toolbar:true,manual_fallback:true,real_game_separate_from_example:true,save_has_no_provider_calls:true,explicit_test_and_send_only:true,source_evidence:true,reload:true,viewport_280_and_320:true,native_qt_guide_and_save:true,native_qt_timeline_and_note:true,native_qt_engine:engine,cloud_calls:0,loopback_provider_calls:calls,errors,external};
+  const result={passed:true,actual_frozen_executable:true,developer_path_removed:true,default_pixel:true,embedded_pixel_font_and_license:true,first_run_guide:true,paper_toolbar:true,manual_fallback:true,real_game_separate_from_example:true,save_has_no_provider_calls:true,explicit_test_and_send_only:true,source_evidence:true,reload:true,viewport_280_and_320:true,native_qt_guide_and_save:true,native_qt_timeline_and_note:true,native_qt_engine:engine,cloud_calls:0,loopback_provider_calls:calls,errors,external};
   fs.writeFileSync(path.join(out,'results.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
  }finally{if(cdp){if(cdp.readyState===WebSocket.OPEN){cdp.send(JSON.stringify({id:999999,method:'Runtime.evaluate',params:{expression:'document.getElementById("close")?.click()'}}));await new Promise(resolve=>setTimeout(resolve,300));}cdp.close();}if(browser)await browser.close();app.kill();provider.close();}
 })().catch(error=>{console.error(error);provider.close();process.exitCode=1;});
