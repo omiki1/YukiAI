@@ -179,6 +179,7 @@ Galgame 可以用本机的 Textractor 取当前窗口里的新台词。流程在
 - `POST /api/chat`、`POST /api/speech`。
 - `GET /api/story`，以及建立、切换、收录、书签、回档、进度、分支、新讨论。
 - `GET /api/story/continuity`（可用 `before_note` 分页），`POST /api/story/notes`、`notes/delete`：阅读回顾与手记；只接受当前已读范围的原文关联，删除要求明确确认。
+- `GET /api/story/timeline`：当前范围内的卡片；`before`向前分页，每页最多24张；`kind`、`speaker`、`q`按类型、原文说话者及全文关键词筛选。响应携带epoch、路线、位置和手记修订号，前端丢弃过期响应。
 - `GET/POST /api/capture/...`：进程、连接、选来源、开始、暂停、断开、手动 Hook 码。
 - `GET /api/story/characters`，`POST /api/story/characters/preview`、`save`、`delete`：人物纠正列表、只读预览、明确确认后保存或删除全部版本。
 - `GET /api/memory`，`POST /api/memory/backup`、`plan`、`confirm`、`compact`、`history/open`：占用、备份、预览/确认、空间整理和找回普通聊天。接口只处理本机生成的备份编号，不接受文件路径。
@@ -188,13 +189,15 @@ Galgame 可以用本机的 Textractor 取当前窗口里的新台词。流程在
 ## 10. 检查
 
 ```text
-python -m unittest scripts.test_window_backend scripts.test_window_settings scripts.test_story_memory scripts.test_capture scripts.test_memory_management scripts.test_continuity scripts.test_characters scripts.test_delivery
+python -m unittest scripts.test_window_backend scripts.test_window_settings scripts.test_story_memory scripts.test_capture scripts.test_memory_management scripts.test_continuity scripts.test_characters scripts.test_delivery scripts.test_timeline
 python scripts/audit_upload.py
 ```
 
 `scripts/test_story_memory.py` 用自编故事和短章节检查：一百句收录、重复句、重启、回档、嵌套分支、迟到回复、当前场景中被问到的句子、无关段落保持关闭、超长句只截取关键词附近、小说未读章节不进入提问、越界剧透降级，以及实际发给模型的上下文不含另一条路线。
 
 `scripts/verify_story.cjs` 在 320×460 和更小的窗口里检查收录、书签、依据和回档。它使用本地回复替身，不调用云接口。
+
+`scripts/test_timeline.py` 检查卡片分类、原句完整覆盖、六句边界、回档、分支截止、版本手记、搜索与分页、备份重建及过期编辑冲突。`scripts/verify_timeline.cjs`自启隔离服务，以自编故事检查280×380和320×460中的来源、筛选、手记增改删、讨论草稿、回档/切线及迟到响应；浏览与编辑不调用云接口。
 
 `scripts/test_characters.py` 覆盖原文不改写、指代范围、别名循环、过期预览、回档版本、同一位置的分支截止、分页、v1/v2/v3备份兼容及未完成请求取消。`scripts/verify_characters.cjs` 自启隔离服务，在280×380和320×460检查原句核对、勾选、编辑、单句指代过期、重启、删除全部版本、迟到回复和备份恢复；云接口调用为零。
 
@@ -209,4 +212,5 @@ python scripts/audit_upload.py
 - 取词不能自动发现游戏读档，也不能保证每一款游戏的 Hook 都正确。
 - 「目前记得」展示最近四段，以及最近说过话的十二个人。更早的内容要提问才会打开。
 - 整理目录和人物索引不调用模型，所以它不会自己写出一段文学性的长摘要。
+- 脉络卡片也是本机派生视图：按现有场景边界切开，每张最多6句，单列章节与选项，显示最多3条摘录并可打开完整原句；不把规则分段称为剧情理解或因果分析。卡片以首条原文ID标识，部分已读时重新截断。手记作为另一类卡片，位置代表写下或修改时读到的句子；修改沿用版本和分支截止，删除会清除所有版本。没有独立卡片表或冗余摘要缓存，备份恢复后从原文和手记重建；删除共读即可清除其全部卡片。卡片编辑附带阅读位置及手记修订号，避免自动取词推进或另一客户端修改后继续保存旧编辑器。
 - 确定性测试能保证另一条路线的原文没有送进本次请求。它不能证明模型的训练记忆绝不泄漏。

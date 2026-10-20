@@ -306,6 +306,8 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
         note_id:str|None=Field(default=None,max_length=100)
         version:int|None=Field(default=None,ge=1)
         turn_id:int|None=Field(default=None,ge=1)
+        reading_position:int|None=Field(default=None,ge=0)
+        note_revision:int|None=Field(default=None,ge=0)
 
     class DeleteNote(ReadingEdit):
         run_id:str=Field(min_length=1,max_length=100)
@@ -317,10 +319,16 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     async def reading_continuity(before_note:int|None=Query(default=None,ge=1)):
         return memory_call(story.continuity,before_note)
 
+    @app.get('/api/story/timeline')
+    async def reading_timeline(before:int|None=Query(default=None,ge=1),
+                               kind:Literal['all','event','statement','choice','chapter','note']='all',
+                               speaker:str=Query(default='',max_length=30),q:str=Query(default='',max_length=80)):
+        return memory_call(story.timeline,before,kind,speaker,q)
+
     @app.post('/api/story/notes')
     async def reading_note(data:ReadingNote):
         result=edit_story(story.save_note,data.run_id,data.text,data.kind,data.status,data.evidence_ids,
-                          data.epoch,data.note_id,data.version,data.turn_id)
+                          data.epoch,data.note_id,data.version,data.turn_id,data.reading_position,data.note_revision)
         cancel_reading_tasks()
         return result
 

@@ -56,7 +56,7 @@ const provider=http.createServer(async(request,response)=>{
   await browser.close();browser=null;const stopped=new Promise(resolve=>app.once('exit',resolve));app.kill();await stopped;
   // Exercise the shipped Qt browser too; a recent Chrome alone misses older-engine gaps.
   const debugReservation=http.createServer();await new Promise(resolve=>debugReservation.listen(0,'127.0.0.1',resolve));const debugPort=debugReservation.address().port;await new Promise(resolve=>debugReservation.close(resolve));
-  app=spawn(executable,['--mode','preview','--port',String(port),'--data-dir',directory],{cwd:directory,windowsHide:true,env:{...env,QTWEBENGINE_REMOTE_DEBUGGING:'127.0.0.1:'+debugPort}});
+  app=spawn(executable,['--mode','preview','--port',String(port),'--data-dir',directory],{cwd:directory,windowsHide:true,env:{...env,YUKI_START_OPEN:'1',QTWEBENGINE_REMOTE_DEBUGGING:'127.0.0.1:'+debugPort}});
   app.stderr.on('data',data=>logs=(logs+data.toString()).slice(-2000));let target;
   let nativeTargets=[];
   try{await wait(async()=>{try{nativeTargets=await(await fetch('http://127.0.0.1:'+debugPort+'/json',{signal:AbortSignal.timeout(500)})).json();target=nativeTargets.find(page=>page.url===origin);return !!target;}catch{return false;}},60000);}
@@ -64,7 +64,7 @@ const provider=http.createServer(async(request,response)=>{
   cdp=new WebSocket(target.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{cdp.addEventListener('open',resolve,{once:true});cdp.addEventListener('error',reject,{once:true});});
   let next=0;const pending=new Map(),nativeErrors=[];
   cdp.addEventListener('message',event=>{const message=JSON.parse(String(event.data));if(message.method==='Runtime.exceptionThrown')nativeErrors.push(message.params.exceptionDetails.text);const task=pending.get(message.id);if(task){pending.delete(message.id);clearTimeout(task.timeout);message.error?task.reject(new Error(JSON.stringify(message.error))):task.resolve(message.result);}});
-  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++next,timeout=setTimeout(()=>{pending.delete(id);reject(new Error('Qt browser command timed out'));},8000);pending.set(id,{resolve,reject,timeout});cdp.send(JSON.stringify({id,method,params}));});
+  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++next,timeout=setTimeout(()=>{pending.delete(id);reject(new Error('Qt browser command timed out: '+method));},8000);pending.set(id,{resolve,reject,timeout});cdp.send(JSON.stringify({id,method,params}));});
   const evaluate=async expression=>{const result=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw new Error(result.exceptionDetails.text);return result.result?.value;};
   await call('Runtime.enable');await wait(async()=>!!await evaluate('Boolean(window.yuki&&window.yuki.avatar.ready)'));
   const engine=await evaluate('navigator.userAgent');assert.equal(await evaluate('window.yuki.snapshot().mode'),'paper');
@@ -73,9 +73,17 @@ const provider=http.createServer(async(request,response)=>{
   await evaluate('document.getElementById("guide-example").click()');
   try{await wait(async()=>!!await evaluate('document.getElementById("guide-status").textContent.includes("三句原文已保存")&&!document.getElementById("guide-example").disabled'));}
   catch(error){throw new Error(error.message+' | Qt guide: '+await evaluate('document.getElementById("guide-status").textContent')+' | Story: '+await evaluate('document.getElementById("story-status").textContent'));}
-  assert.equal((await(await fetch(origin+'api/story')).json()).active.position,3);assert.equal(calls,2);assert.deepEqual(nativeErrors,[]);
+  assert.equal((await(await fetch(origin+'api/story')).json()).active.position,3);assert.equal(calls,2);
+  await evaluate('document.getElementById("guide-close").click();document.getElementById("story-toggle").click();document.querySelector("[data-story-tab=timeline]").click()');
+  await wait(async()=>!!await evaluate('document.querySelectorAll("#timeline-cards .timeline-card").length>0'));
+  await evaluate('Array.from(document.querySelectorAll("#timeline-cards button")).find(button=>button.textContent==="记个想法").click();document.getElementById("timeline-note-text").value="自编验收：想继续追踪雨伞的去向。";document.getElementById("timeline-note-kind").value="theory";document.getElementById("timeline-note-form").dispatchEvent(new Event("submit",{cancelable:true}))');
+  await wait(async()=>!!await evaluate('Boolean(document.querySelector(".timeline-card.note")?.textContent.includes("自编验收"))'));
+  const nativeLayout=await evaluate('(()=>{const root=document.getElementById("timeline-panel");return {width:root.clientWidth,scroll:root.scrollWidth,overflow:Array.from(root.querySelectorAll("*")).filter(element=>element.getClientRects().length&&element.getBoundingClientRect().right>root.getBoundingClientRect().right+1).slice(0,12).map(element=>({tag:element.tagName,id:element.id,class:element.className,width:element.clientWidth,scroll:element.scrollWidth}))};})()');
+  assert.ok(nativeLayout.width>150&&nativeLayout.scroll<=nativeLayout.width,JSON.stringify(nativeLayout));
+  assert.equal(await evaluate('document.getElementById("stage").clientWidth>200&&document.getElementById("stage").clientHeight>200'),true);
+  assert.equal(calls,2);assert.deepEqual(nativeErrors,[]);
   const nativeStopped=new Promise(resolve=>app.once('exit',resolve));await evaluate('document.getElementById("close").click()').catch(()=>{});await Promise.race([nativeStopped,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Qt app did not close')),5000))]);cdp.close();cdp=null;
-  const result={passed:true,actual_frozen_executable:true,developer_path_removed:true,first_run_guide:true,paper_toolbar:true,manual_fallback:true,real_game_separate_from_example:true,save_has_no_provider_calls:true,explicit_test_and_send_only:true,source_evidence:true,reload:true,viewport_280_and_320:true,native_qt_guide_and_save:true,native_qt_engine:engine,cloud_calls:0,loopback_provider_calls:calls,errors,external};
+  const result={passed:true,actual_frozen_executable:true,developer_path_removed:true,first_run_guide:true,paper_toolbar:true,manual_fallback:true,real_game_separate_from_example:true,save_has_no_provider_calls:true,explicit_test_and_send_only:true,source_evidence:true,reload:true,viewport_280_and_320:true,native_qt_guide_and_save:true,native_qt_timeline_and_note:true,native_qt_engine:engine,cloud_calls:0,loopback_provider_calls:calls,errors,external};
   fs.writeFileSync(path.join(out,'results.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
  }finally{if(cdp){if(cdp.readyState===WebSocket.OPEN){cdp.send(JSON.stringify({id:999999,method:'Runtime.evaluate',params:{expression:'document.getElementById("close")?.click()'}}));await new Promise(resolve=>setTimeout(resolve,300));}cdp.close();}if(browser)await browser.close();app.kill();provider.close();}
 })().catch(error=>{console.error(error);provider.close();process.exitCode=1;});

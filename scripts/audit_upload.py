@@ -12,6 +12,7 @@ SCRIPT_FILES={'scripts/'+x for x in ['settings.py','yuki_chat.py','yuki_history.
 CORE_FILES={'app/vendor/live2d/Core/'+x for x in ['live2dcubismcore.d.ts','LICENSE.md','RedistributableFiles.txt']}
 SCRIPT_FILES.update({'scripts/yuki_memory.py','scripts/test_memory_management.py','scripts/verify_memory.cjs'})
 SCRIPT_FILES.update({'scripts/test_continuity.py','scripts/verify_continuity.cjs'})
+SCRIPT_FILES.update({'scripts/test_timeline.py','scripts/verify_timeline.cjs'})
 SCRIPT_FILES.update({'scripts/yuki_characters.py','scripts/test_characters.py','scripts/verify_characters.cjs'})
 SCRIPT_FILES.update({'scripts/yuki_paths.py','scripts/build_alpha.py','scripts/test_delivery.py','scripts/verify_delivery.cjs'})
 OTHER_FILES={'docs/PUBLISHING.md','docs/SYSTEM.md','docs/WORKLOG.md','third_party/README.md','third_party/Open-LLM-VTuber-MIT.txt'}

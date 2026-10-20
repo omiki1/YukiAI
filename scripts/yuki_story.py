@@ -382,6 +382,55 @@ def ui_line(event):
             'text': clip(event.get('text') or '', 80), 'raw_text': event.get('raw_text') or event.get('text') or ''}
 
 
+def timeline_cards(events, notes=()):
+    """A reading-order index of excerpts, never an inferred plot or causal graph."""
+    cards = []
+    for scene in segment_scenes(events):
+        bucket = []
+
+        def close():
+            if not bucket:
+                return
+            kinds = {event['kind'] for event in bucket}
+            kind = 'choice' if kinds == {'choice'} else 'chapter' if kinds == {'chapter'} else 'statement' if kinds == {'dialogue'} else 'event'
+            anchor = next((event for event in bucket if event['kind'] != 'dialogue'), bucket[0])
+            title = ((anchor.get('speaker') or '人物') + '：' if kind == 'statement' else '') + clip(anchor['text'], 52)
+            selected = [bucket[0]]
+            # Preserve the last narrator and last statement rather than inventing a summary.
+            for target in ('narration', 'dialogue', 'choice'):
+                line = next((event for event in reversed(bucket) if event['kind'] == target), None)
+                if line and line not in selected:
+                    selected.append(line)
+            selected = sorted(selected[:3], key=lambda event: event['position'])
+            cards.append({'id': 'event:' + str(bucket[0]['id']), 'kind': kind, 'title': title,
+                          'start': bucket[0]['position'], 'end': bucket[-1]['position'],
+                          'scene_start': scene[0]['position'], 'people': scene_speakers(bucket),
+                          'excerpts': [ui_line(event) for event in selected],
+                          'evidence': [ui_line(event) for event in bucket]})
+            bucket.clear()
+
+        for event in scene:
+            separate = event['kind'] in ('choice', 'chapter')
+            if bucket and (separate or len(bucket) >= 6 or
+                           (event['kind'] == 'narration' and bucket[-1]['kind'] == 'dialogue')):
+                close()
+            bucket.append(event)
+            if separate:
+                close()
+        close()
+    for note in notes:
+        cards.append({'id': 'note:' + note['note_id'], 'kind': 'note', 'title': clip(note['text'], 52),
+                      'start': note['position'], 'end': note['position'], 'scene_start': None,
+                      'people': list(dict.fromkeys(line['speaker'] for line in note['evidence'] if line.get('speaker'))),
+                      'excerpts': [], 'text': note['text'],
+                      'note_id': note['note_id'], 'version': note['id'], 'note_kind': note['kind'],
+                      'status': note['status'], 'evidence': note['evidence']})
+    cards.sort(key=lambda card: (card['end'], card['kind'] == 'note', card.get('version', 0)))
+    for index, card in enumerate(cards, 1):
+        card['order'] = index
+    return cards
+
+
 def present_memory(events, corrections=()):
     """Short, route-local memory for the reading panel. Claims stay separate from narration."""
     characters = []
@@ -1059,7 +1108,8 @@ class StoryStore(CharacterStoreMixin):
             notes.append(item)
         return notes
 
-    def save_note(self, run_id, text, kind, status, ids, expected, note_id=None, version=None, turn_id=None):
+    def save_note(self, run_id, text, kind, status, ids, expected, note_id=None, version=None, turn_id=None,
+                  reading_position=None, note_revision=None):
         text = text.strip()
         if kind not in ('question', 'theory', 'feeling') or status not in ('open', 'resolved'):
             raise ValueError('请选择疑问、猜测或感受，以及是否已聊清楚。')
@@ -1070,6 +1120,9 @@ class StoryStore(CharacterStoreMixin):
             run = self._run(db)
             if run['id'] != run_id:
                 raise StoryConflict('共读已经切换，请重新打开手记。')
+            if ((reading_position is not None and run['position'] != reading_position) or
+                    (note_revision is not None and run['note_generation'] != note_revision)):
+                raise StoryConflict('阅读进度或手记已改变，请重新打开卡片后保存。')
             events = self._events(db, run)
             allowed = {event['id'] for event in events}
             if note_id:
@@ -1158,6 +1211,39 @@ class StoryStore(CharacterStoreMixin):
             return {'epoch': state['epoch'], 'run_id': run['id'], 'branch_id': run['branch_id'],
                     'note_revision': run['note_generation'], 'recap': recap, 'notes': page[:50], 'note_count': len(notes),
                     'more_notes': page[49]['id'] if len(page) > 50 else None}
+
+    def timeline(self, before=None, kind='all', speaker='', query=''):
+        if kind not in ('all', 'event', 'statement', 'choice', 'chapter', 'note'):
+            raise ValueError('请选择原文片段、人物说辞、选项或手记。')
+        speaker, query = speaker.strip(), query.strip().casefold()
+        if len(speaker) > 30 or len(query) > 80 or (before is not None and (type(before) is not int or before < 1)):
+            raise ValueError('脉络筛选条件无效。')
+        with self.connection() as db:
+            state = self._state(db)
+            result = {'epoch': state['epoch'], 'run_id': None, 'branch_id': None, 'position': 0,
+                      'note_revision': 0, 'cards': [], 'people': [], 'total': 0, 'matched': 0, 'more_before': None}
+            if not state['active_run_id']:
+                return result
+            run = self._run(db)
+            events = self._events(db, run)
+            cards = timeline_cards(events, self._visible_notes(db, run, events))
+            people = sorted({event['speaker'] for event in events if event.get('speaker')})
+            def matches(card):
+                if kind != 'all' and card['kind'] != kind:
+                    return False
+                if speaker and speaker not in card['people']:
+                    return False
+                body = '\n'.join([card['title'], card.get('text', ''),
+                                  *(event['raw_text'] for event in card['evidence'])]).casefold()
+                return not query or query in body
+            filtered = [card for card in cards if matches(card)]
+            page = [card for card in filtered if before is None or card['order'] < before][-25:]
+            shown = page[-24:]
+            result.update(run_id=run['id'], branch_id=run['branch_id'], position=run['position'],
+                          note_revision=run['note_generation'], cards=shown, people=people,
+                          total=len(cards), matched=len(filtered),
+                          more_before=shown[0]['order'] if len(page) > 24 else None)
+            return result
 
     def memory_inventory(self):
         """Counts cover every branch and chat generation, including hidden discussions."""

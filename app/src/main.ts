@@ -18,7 +18,7 @@ let voiceEnabled=false,previewMode=false;
 let classicTurns:Turn[]=[],conversationGeneration=0,readingInitialized=false,currentRequest:AbortController|null=null,currentEvidence:StoryEvidence[]=[],replyKind='',progressNote='';
 const speech=new SpeechPlayer(busy=>{$('voice-stop').hidden=!busy;$('settings-voice-stop').hidden=!busy;});
 const settings=new SettingsPanel(avatar,speech,data=>{voiceEnabled=data.voice.enabled&&!previewMode;if(!voiceEnabled)speech.stop();});
-const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');},changeHistory);
+const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');},changeHistory,text=>{document.querySelector<HTMLElement>('.dialogue').hidden=false;$('dialogue-restore').hidden=true;setComposer(true,true);$<HTMLTextAreaElement>('message').value=text;hint('已准备讨论草稿，发送后再和 Yuki 聊。');});
 const toolbar=new ModelToolbar(avatar);
 const guide=new QuickStart(()=>settings.open('llm'),()=>story.beginReading(true),async()=>{
  if(loadTask)await loadTask;

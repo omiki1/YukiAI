@@ -39,6 +39,8 @@
 !/scripts/verify_memory.cjs
 !/scripts/test_continuity.py
 !/scripts/verify_continuity.cjs
+!/scripts/test_timeline.py
+!/scripts/verify_timeline.cjs
 !/scripts/yuki_characters.py
 !/scripts/yuki_paths.py
 !/scripts/build_alpha.py
