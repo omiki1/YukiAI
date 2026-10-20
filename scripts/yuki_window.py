@@ -4,17 +4,39 @@ import json
 import os
 import sys
 
-ROOT=Path(__file__).resolve().parents[1]
+from .yuki_paths import data_root, resource_root
+ROOT=data_root()
+
+def qt_runtime_path(path):
+    """Qt5's resource loader needs an ASCII path; keep personal data paths intact."""
+    path=Path(path)
+    if str(path).isascii() or os.name!='nt':return path
+    import ctypes
+    api=ctypes.windll.kernel32.GetShortPathNameW
+    api.argtypes=(ctypes.c_wchar_p,ctypes.c_wchar_p,ctypes.c_uint32);api.restype=ctypes.c_uint32
+    buffer=ctypes.create_unicode_buffer(32768);length=api(str(path),buffer,len(buffer))
+    if 0<length<len(buffer) and buffer.value.isascii():return Path(buffer.value)
+    raise RuntimeError('当前目录无法提供 Qt 所需的兼容路径。请把完整程序解压到英文目录（例如 C:\\YukiAI）后启动；个人阅读记录会保留。')
+
 
 def open_window(url):
     # The host can inherit unrelated Qt settings from the terminal/Conda session.
-    for name in ('QT_PLUGIN_PATH','QT_QPA_PLATFORM_PLUGIN_PATH','PYTHONPATH'):
+    # In a frozen bundle these paths are set by its trusted runtime hook.
+    # Discarding them breaks Qt's plugin lookup after a move to a non-ASCII path.
+    inherited=('PYTHONPATH',) if getattr(sys,'frozen',False) else ('QT_PLUGIN_PATH','QT_QPA_PLATFORM_PLUGIN_PATH','PYTHONPATH')
+    for name in inherited:
         os.environ.pop(name,None)
     os.environ['QT_QPA_PLATFORM']=os.environ.get('YUKI_QT_PLATFORM','windows')
-    from PyQt5.QtCore import Qt,QUrl,QObject,QPoint,QAbstractNativeEventFilter,pyqtSlot
+    from PyQt5.QtCore import Qt,QUrl,QObject,QPoint,QAbstractNativeEventFilter,pyqtSlot,QCoreApplication
     from PyQt5.QtCore import QRectF
     from PyQt5.QtGui import QColor,QSurfaceFormat,QPainter,QFont,QLinearGradient,QPen,QPainterPath
     from PyQt5.QtWidgets import QApplication,QWidget,QVBoxLayout,QSizeGrip,QMenu
+    if getattr(sys,'frozen',False):
+        qt=qt_runtime_path(resource_root()/'PyQt5/Qt5')
+        QCoreApplication.setLibraryPaths([str(qt/'plugins')])
+        os.environ['QTWEBENGINEPROCESS_PATH']=str(qt/'bin/QtWebEngineProcess.exe')
+        os.environ['QTWEBENGINE_RESOURCES_PATH']=str(qt/'resources')
+        os.environ['QTWEBENGINE_LOCALES_PATH']=str(qt/'translations/qtwebengine_locales')
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     fmt=QSurfaceFormat();fmt.setAlphaBufferSize(8);QSurfaceFormat.setDefaultFormat(fmt)

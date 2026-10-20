@@ -17,11 +17,13 @@ from .yuki_speech import SpeechClient
 from .yuki_story import StoryStore,StoryConflict
 from .yuki_capture import CaptureService
 from .yuki_memory import MemoryService
+from .yuki_paths import resource_root
 
-ROOT=Path(__file__).resolve().parents[1]
+ROOT=resource_root()
 
-def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,speech=None,story=None,capture_runtime=None):
+def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,speech=None,story=None,capture_runtime=None,web_directory=None):
     config=config or ConfigStore()
+    web=Path(web_directory) if web_directory else ROOT/'app/dist'
 
     @asynccontextmanager
     async def lifespan(app):
@@ -97,7 +99,8 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
         return {'app':'yuki-window','chat_enabled':app.state.chat is not None,
                 'voice_enabled':bool(config.data['voice']['enabled'] and app.state.speech),
                 'preview':not allow_cloud,
-                'model':'/model/yuki_cutout.model3.json','expression_count':7,'independent':True}
+                'model':'/model/yuki_cutout.model3.json','expression_count':7,'independent':True,
+                'model_available':(web/'model/yuki_cutout.model3.json').is_file() and (web/'vendor/live2d-core/live2dcubismcore.js').is_file()}
 
     @app.get('/api/settings')
     async def get_settings():return config.public()
@@ -475,5 +478,5 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
             finally:
                 if app.state.active_chat_task is task:app.state.active_chat_task=None
 
-    app.mount('/',StaticFiles(directory=ROOT/'app/dist',html=True))
+    app.mount('/',StaticFiles(directory=web,html=True))
     return app

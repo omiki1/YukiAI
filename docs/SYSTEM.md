@@ -2,7 +2,19 @@
 
 Yuki 是一个贴在屏幕上的共读伙伴。它陪人读已经看过的 Galgame 台词或小说段落：聊感受、对情节、分清人物说辞和叙述，并在问到典故时解释。它不检索攻略，不操作游戏，也不把还没读到的内容当成已知剧情。
 
-这份说明对应仓库里的当前源码。模型、密钥、聊天记录和剧情数据库不在仓库中。2026-10-19 这几轮改动的过程记在 `docs/WORKLOG.md`。
+这份说明对应仓库里的当前源码。模型、密钥、聊天记录和剧情数据库不在仓库中。改动与验证记在 `docs/WORKLOG.md`，产品化顺序与尚未验证的目标见 `docs/PRODUCT_ROADMAP.md`。
+
+## 运行与首次使用
+
+资源由 `yuki_paths.resource_root()` 定位，个人资料由 `data_root()` 定位。源码版默认沿用项目目录；打包版使用 `%LOCALAPPDATA%/YukiAI`；`YUKI_DATA_DIR` 或启动参数 `--data-dir` 可指定独立目录。配置、数据库、聊天、取词工具及窗口缓存使用个人目录，静态界面使用资源目录。源码启动不再依赖某个开发者的Python路径。
+
+打包桌面程序显式设置随包Qt组件位置，保留打包运行钩子的插件路径；Windows非ASCII资源目录通过系统短名称交给Qt5的资源加载器，目录本身和个人资料不搬移。系统未提供可用兼容名称时返回可读的启动提示。构建附带相对路径 `qt.conf`，参考 [Qt路径配置说明](https://doc.qt.io/qt-6/qt-conf.html)。
+
+Qt5的ICU初始化还会读取模块自身的位置，因此非ASCII可执行路径在启动桌面前会以同一文件的兼容名称启动独立实例，并保留全部参数和资料位置；原进程等待其退出。使用 [PyInstaller独立实例环境重置](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#using-sys-executable-to-spawn-subprocesses-that-outlive-the-application-process-implementing-application-restart)，并设置一次启动标记防止循环。预览服务和只读检查无需重启。
+
+普通构建按需加载本地Live2D运行库和模型；不可用时使用原创2D纸签。模型代码改为延迟加载。Alpha构建不复制public目录，也不输出Live2D代码块，所以克隆仓库或使用免安装测试包无需取得私人角色素材。纸签的透明区域仍不触发操作栏，人物原有表情、比例及悬停行为保留。
+
+首次无接口、无共读时打开引导，也可从“···”重开。示例明确展示三句自编原文，玩家确认读完后通过现有共读/导入接口保存到独立共读。“粘贴我的剧情”创建新的游戏共读；“准备问题”只填写草稿。配置保存、原文整理不调用LLM，连接测试与发送分别由玩家触发。取词页提供手动粘贴退路，尚无OCR或自动剪贴板监听。
 
 ## 1. 它解决什么问题
 
@@ -47,6 +59,8 @@ Yuki 是一个贴在屏幕上的共读伙伴。它陪人读已经看过的 Galga
 8. 通过之后才写入本地记录。界面上的「依据」打开的是本机保存的全文，不是送给模型的截断文本。
 
 模型若没按 JSON 返回，会先从文本里抽出 `{...}`。仍然失败就再请求一次。两次都不行，界面得到一条不含上游正文的错误。
+
+敏感措辞检查的语料只取本次打开的 `events.text` 与说话者，不再加入问题、作品名、讨论、手记、目录、人物索引或未发送的 `raw_text`。这防止把玩家提问及旧推断当成剧情证明，仍不具备逐条语义支持验证；原文中出现相同关键词，也不证明回复里的完整推断成立。
 
 普通聊天和共读讨论是分开的。共读不会把另一条路线的聊天带进来。
 
@@ -174,7 +188,7 @@ Galgame 可以用本机的 Textractor 取当前窗口里的新台词。流程在
 ## 10. 检查
 
 ```text
-python -m unittest scripts.test_window_backend scripts.test_window_settings scripts.test_story_memory scripts.test_capture scripts.test_memory_management scripts.test_continuity scripts.test_characters
+python -m unittest scripts.test_window_backend scripts.test_window_settings scripts.test_story_memory scripts.test_capture scripts.test_memory_management scripts.test_continuity scripts.test_characters scripts.test_delivery
 python scripts/audit_upload.py
 ```
 
@@ -183,6 +197,8 @@ python scripts/audit_upload.py
 `scripts/verify_story.cjs` 在 320×460 和更小的窗口里检查收录、书签、依据和回档。它使用本地回复替身，不调用云接口。
 
 `scripts/test_characters.py` 覆盖原文不改写、指代范围、别名循环、过期预览、回档版本、同一位置的分支截止、分页、v1/v2/v3备份兼容及未完成请求取消。`scripts/verify_characters.cjs` 自启隔离服务，在280×380和320×460检查原句核对、勾选、编辑、单句指代过期、重启、删除全部版本、迟到回复和备份恢复；云接口调用为零。
+
+`scripts/test_delivery.py` 检查个人路径、只读启动检查、独立进程的数据落点、无模型共读及包内私人资料排除。`scripts/verify_delivery.cjs` 使用实际打包可执行文件与独立资料目录，移除开发环境路径，先在浏览器验证引导、纸签、粘贴、明确保存/测试/发送及原文，再重启为Qt桌面程序，检查其内置浏览器能保存体验剧情并正常退出。测试调试接口只对自己的隔离进程开启，不为正常启动启用。依据 [Qt调试文档](https://doc.qt.io/qt-6/qtwebengine-debugging.html) 使用本机调试端口；该测试不代替新Windows机器或真实玩家实测。
 
 推送前运行 `scripts/audit_upload.py`。它核对允许上传的源码名单，并检查暂存内容里有没有已配置的密钥。失败时不要用 `git add -f` 把排除文件推进去。规则写在 `docs/PUBLISHING.md`。
 

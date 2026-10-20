@@ -11,10 +11,18 @@
     <section class="dialogue" aria-label="Yuki 的最新消息">
       <div id="line" role="log" aria-live="polite" tabindex="0" title="点击显示完整消息"><span id="reply">读到哪儿了？我陪你一起看。</span><span id="advance" hidden aria-hidden="true">▾</span></div>
       <p id="hint" role="status"></p>
-      <div class="bubble-actions"><button id="voice-stop" hidden title="停止朗读">停声</button><button id="evidence-toggle" hidden title="查看本次回复引用的原文">依据</button><button id="reply-expand" hidden aria-expanded="false" aria-controls="line">展开</button><button id="chat-toggle" aria-expanded="false" aria-controls="composer">聊聊</button><button id="more-toggle" aria-expanded="false" aria-controls="dialogue-tools" aria-label="更多聊天操作" title="更多">···</button><div id="dialogue-tools" class="dialogue-tools" hidden><button id="history-toggle" aria-expanded="false" title="查看本次对话">回想</button><button id="new-chat" title="开始新的对话">新篇</button><button id="dialogue-fold" title="收起气泡">收起气泡</button></div></div>
+      <div class="bubble-actions"><button id="voice-stop" hidden title="停止朗读">停声</button><button id="evidence-toggle" hidden title="查看本次回复引用的原文">依据</button><button id="reply-expand" hidden aria-expanded="false" aria-controls="line">展开</button><button id="chat-toggle" aria-expanded="false" aria-controls="composer">聊聊</button><button id="more-toggle" aria-expanded="false" aria-controls="dialogue-tools" aria-label="更多聊天操作" title="更多">···</button><div id="dialogue-tools" class="dialogue-tools" hidden><button id="history-toggle" aria-expanded="false" title="查看本次对话">回想</button><button id="new-chat" title="开始新的对话">新篇</button><button id="guide-open" title="第一次使用与体验剧情">使用引导</button><button id="dialogue-fold" title="收起气泡">收起气泡</button></div></div>
       <form id="composer" hidden><label class="sr-only" for="message">对 Yuki 说</label><textarea id="message" rows="1" maxlength="4000" placeholder="和 Yuki 说……"></textarea><button id="send" type="submit" aria-label="发送消息">➤</button></form>
     </section>
     <button id="dialogue-restore" hidden aria-label="展开对话框">◇ Yuki · 聊两句</button>
+    <section id="quickstart" hidden role="dialog" aria-modal="true" aria-labelledby="guide-title">
+      <header><div><span class="guide-eyebrow">Yuki · 初次共读</span><h1 id="guide-title">从几句剧情开始</h1></div><button id="guide-close" aria-label="稍后再看使用引导">×</button></header>
+      <div class="guide-content"><p>我陪你回想已经读过的剧情，也记下你的疑问和猜测。</p>
+        <article><h2>1 · 接上聊天服务</h2><p id="guide-connection"></p><button id="guide-connect">配置与测试聊天</button><p class="guide-note">使用你自己的接口。发送消息时，问题、选出的已读片段及相关讨论会交给该服务；云服务可能收费。本机接口也可使用。</p></article>
+        <article><h2>2 · 放入已读剧情</h2><p id="guide-reading"></p><button id="guide-manual">粘贴我的剧情</button><p class="guide-note">自动取词无法连接时，仍可粘贴。没有读过的脚本请不要整篇导入。</p><details><summary>还没开游戏？用三句自编故事体验</summary><pre id="guide-example-text"></pre><button id="guide-example">我已读完，用它体验</button><p class="guide-note">单独建立体验共读，不覆盖你的游戏。保存和整理原文不调用云接口。</p></details></article>
+        <article><h2>3 · 一起聊，随时看原句</h2><p>回复旁的“依据”可回看原文。猜测仍是猜测，引用也不能保证推断正确。</p><button id="guide-discuss" disabled>准备一个剧情问题</button><p class="guide-note">只填入问题，由你点击发送。热门作品仍可能被模型误判或漏出后文。</p></article>
+      </div><footer id="guide-status" role="status"></footer>
+    </section>
     <section id="memories" class="memories" hidden aria-label="本次对话回想"><header><span>回 想</span><button id="history-close" aria-label="关闭回想">×</button></header><div id="history-lines"></div></section>
     <section id="story-panel" hidden role="dialog" aria-modal="true" aria-labelledby="story-title">
       <header class="story-header"><div><h1 id="story-title">一起读到这里</h1><p id="story-position">先建立一篇共读</p><p id="story-progress" class="story-note" hidden></p></div><button id="story-close" aria-label="关闭剧情记录">×</button></header>
@@ -36,7 +44,7 @@
         <div data-story-pane="import" hidden><form id="story-import-form"><label for="story-text">粘贴已经读过的中文剧情</label><textarea id="story-text" maxlength="60000" rows="6" placeholder="美咲：昨晚我没有离开宿舍。&#10;旁白：她避开了你的目光。" required></textarea><p class="story-note">每行作为一段原文，空行跳过。不要粘贴尚未阅读的整部脚本。</p><label for="story-kind">这段内容是</label><select id="story-kind"><option value="auto">自动辨认对白、旁白和选项</option><option value="dialogue">人物对白</option><option value="narration">旁白</option><option value="choice">选项</option></select><div id="story-speaker-field" hidden><label for="story-speaker">说话者（可留空）</label><input id="story-speaker" type="text" maxlength="30"></div><label class="story-check"><input id="story-confirm" type="checkbox" required>这些内容我已经读过</label><button id="story-import-submit" type="submit">收录并更新进度</button><p class="story-note">在回退位置收录新内容，会另存为分支，原路线继续保留。</p></form></div>
         <div data-story-pane="bookmarks" hidden><form id="story-bookmark-form"><label for="story-bookmark-name">在当前进度留个书签</label><div class="story-inline"><input id="story-bookmark-name" type="text" maxlength="60" placeholder="例如：旧校舍前的选项"><button type="submit">留书签</button></div></form><div id="story-bookmarks"></div><hr><form id="story-fork-form"><label for="story-branch-name">从当前位置开启另一条路线</label><div class="story-inline"><input id="story-branch-name" type="text" maxlength="60" placeholder="新路线的名字（可留空）"><button type="submit">分支</button></div></form><label for="story-branch">切换路线（回到该路线已记录的末尾）</label><select id="story-branch"></select><p class="story-note">读档后请在这里恢复书签或校准进度。Yuki 的讨论会随当前路线一起切换。</p></div>
         <div id="capture-panel" data-story-pane="capture" hidden>
-          <p id="capture-install" class="story-note" hidden>取词内核尚未准备。请按 README 的“自动取词”说明安装官方工具。</p>
+          <p id="capture-install" class="story-note" hidden>取词工具尚未准备，可先粘贴已读文字开始共读。</p><button id="capture-manual" type="button">取词不顺？改用粘贴</button>
           <label for="capture-process">正在运行的游戏</label><select id="capture-process"><option value="">选择游戏窗口</option></select>
           <div class="capture-actions"><button id="capture-refresh" type="button">刷新游戏</button><button id="capture-attach" type="button">连接游戏</button></div>
           <p id="capture-game" class="story-note">尚未连接游戏</p>
@@ -99,6 +107,5 @@
       </form>
     </section>
   </main>
-  <script src="/vendor/live2d-core/live2dcubismcore.js"></script>
   <script type="module" src="/src/main.ts"></script>
 </body></html>

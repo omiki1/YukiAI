@@ -566,5 +566,27 @@ class AsyncStoryTests(unittest.IsolatedAsyncioTestCase):
             await chat.client.close()
 
 
+class EvidenceBoundaryTests(unittest.TestCase):
+    def test_user_theories_and_cached_text_cannot_license_spoiler_claims(self):
+        from dataclasses import replace
+        from scripts.yuki_story import ReadingSnapshot
+        line={'id':1,'position':1,'kind':'dialogue','speaker':'美咲','text':'我在等朋友。','raw_text':'我在等朋友。'}
+        base=ReadingSnapshot(0,'fixture',events=(line,))
+        candidate={'text':'她的真实身份是校长。','emotion':'neutral','answer_type':'analysis','evidence_ids':[1]}
+        variants=[(base,'她的真实身份是校长吗？'),
+                  (replace(base,title='真实身份'),''),
+                  (replace(base,messages=({'role':'ai','content':'真实身份是校长'},)),''),
+                  (replace(base,notes=({'text':'真实身份是校长'},)),''),
+                  (replace(base,scenes=({'summary':'真实身份是校长'},)),''),
+                  (replace(base,characters=({'name':'美咲','aliases':['真实身份'],'claims':[{'text':'真实身份是校长'}]},)),''),
+                  (replace(base,events=({**line,'raw_text':'我在等朋友。真实身份是校长。'},)),'')]
+        for snapshot,question in variants:
+            with self.subTest(question=question,snapshot=snapshot):
+                self.assertEqual(ground_story_answer(candidate,snapshot,question)['answer_type'],'uncertain')
+        opened=replace(base,events=({**line,'text':'美咲说，真实身份这个说法只是传言。'},))
+        supported={**candidate,'text':'她说“真实身份这个说法只是传言”。'}
+        self.assertEqual(ground_story_answer(supported,opened)['answer_type'],'analysis')
+
+
 if __name__ == '__main__':
     unittest.main()

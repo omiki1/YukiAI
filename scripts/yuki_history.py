@@ -6,7 +6,8 @@ import re
 import hashlib
 from uuid import uuid4
 
-ROOT=Path(__file__).resolve().parents[1]
+from .yuki_paths import data_root
+ROOT=data_root()
 class HistoryStore:
     def __init__(self,directory=None):
         self.directory=Path(directory) if directory else ROOT/'chat_history/yuki_original_001'

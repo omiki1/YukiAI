@@ -19,10 +19,11 @@
 - 记忆管理：查看各次共读的原文、路线、书签、全部旧讨论数量和本机占用；可清空讨论、删除某次共读、找回或删除普通聊天，以及本机备份、恢复副本、删除备份和整理数据库空闲空间。清理会先预览范围，再明确确认。
 - 接着上次读：原文页提供带原句入口的阅读回顾和最近聊过的问题；疑问、猜测和感受可以保留为共读手记，支持关联原文、修改、标记聊清楚及删除。手记随进度和分支使用，重启后保留，并进入后续共读提问。
 - 人物与称呼：核对原文后，明确告诉 Yuki“班长是美咲的称呼”或“这句讨论中的她指美咲”。支持修改、回档版本及删除全部版本；原文不改写，单句指代在推进后失效。
+- 首次使用引导、独立的自编体验剧情，以及取词失败后直接粘贴的入口。缺少模型时使用原创纸签界面，聊天和记忆仍可使用。已加入不含私人素材的 Windows 免安装测试包构建，真实玩家安装和留存验证尚未完成。
 
 ## 此仓库的范围
 
-这是源码备份，**不含模型、原画、纹理、API密钥、本地配置、聊天记录、日志、截图、缓存、打包产物或旧参考项目**。Cubism Core 的运行库文件也留在本机，因此直接克隆本仓库不会得到完整可运行成品。
+这是源码仓库，**不含模型、原画、纹理、API密钥、本地配置、聊天记录、日志、截图、缓存、打包产物或旧参考项目**。Cubism Core 的运行库文件也留在本机。克隆后准备依赖并构建界面即可使用纸签界面；Live2D 素材是可选项。
 
 必要的 Cubism Framework 源码、Core 类型声明及许可说明保留在 `app/vendor/live2d/`。应用代码不依赖旧参考项目。第三方来源见 `third_party/README.md`。
 
@@ -46,11 +47,29 @@
 
 ## 本地准备
 
-1. 准备 Python 3.12 环境及 `requirements.txt` 中的依赖。当前启动脚本保留开发机的 myenv 路径，换机时需调整 `start_yuki.py`、`start_yuki.cmd`。
-2. 将自行持有的模型运行文件放到 `app/public/model/`，入口为 `yuki_cutout.model3.json`。将合法取得的 Cubism Core 运行库放到 `app/public/vendor/live2d-core/live2dcubismcore.js`。这些目录不会进入 Git。
+1. 源码版准备 Python 3.12+、Node.js 和 `requirements.txt` 依赖。可双击 `setup_yuki.cmd` 准备项目内 `.venv` 并构建，之后用 `start_yuki.cmd` 启动；也可用自己已准备好的 Python 直接运行 `start_yuki.py`。启动不再限定开发机路径，命令脚本也支持 `YUKI_PYTHON` 指定解释器。
+2. 可选：将自行持有的模型运行文件放到 `app/public/model/`，入口为 `yuki_cutout.model3.json`；将合法取得的 Cubism Core 放到 `app/public/vendor/live2d-core/live2dcubismcore.js`。这些目录不会进入 Git。缺少素材或初始化失败时使用纸签界面，不影响文字共读。
 3. 在 `app/` 执行 `npm ci --ignore-scripts`、`npm run check`、`npm run build`。
 4. 正常启动后，鼠标移到模型上，在浮现的设置中填写接口。也可先复制 `.env.example` 为 `.env.local` 填写文字服务参数。
 5. 使用已配置的 Python 运行 `start_yuki.py`；`--mode preview` 不调用云 API，`--headless` 只启动本机预览服务。默认监听 `127.0.0.1:12393`。
+
+首次打开且未配置聊天、没有共读时显示使用引导；也可从气泡“··· → 使用引导”重新打开。可以先阅读并保存三句自编故事，再配置聊天。保存配置、整理原文和准备问题均不自动调用接口，测试与发送由玩家点击。引导中的“粘贴我的剧情”会新建游戏共读，避免把游戏混入体验故事。
+
+`python start_yuki.py --check` 只检查运行条件，不写阅读记录。`--data-dir 目录` 可独立保存配置与记忆。源码版默认沿用仓库旁的本机资料；打包版默认使用 `%LOCALAPPDATA%/YukiAI`，更新程序不清空记录。资料都不会进入Git。
+
+## Windows 免安装测试包
+
+本阶段提供本机构建和验收方式，尚未公开正式 Release。使用 Python 3.12 在独立构建环境安装 `requirements-build.txt`，前端先准备 `app/node_modules`，再运行：
+
+```text
+python -m scripts.build_alpha
+```
+
+产物位于被 Git 排除的 `artifacts/alpha-编号/`：解压整个 `YukiAI-Windows-Alpha.zip`，双击其中的 `YukiAI.exe`。包内已包含 Python、Qt和界面，不需要另装Python或Node.js。专用构建不读取 `app/public`，使用原创纸签图形，不含Live2D代码块、Core运行库、私人素材、密钥、阅读资料或取词二进制工具；可先用粘贴体验。包内附起步说明、依赖版本与许可证文件，并扫描本机已配置密钥。
+
+这是本机Alpha验证路径，不代表已经在干净Windows虚拟机或真实新玩家中完成验收。完整阶段、待验证指标和下一步任务见 [产品成熟化路线](docs/PRODUCT_ROADMAP.md)。
+
+Qt5的组件路径采用系统兼容名称处理中文解压目录；若所在磁盘不能提供兼容名称，启动提示会引导改用英文目录，个人记录的位置不受影响。
 
 设置分为外观、聊天接口和语音接口。聊天填写 Base URL、API Key、模型完整名称；支持本机 HTTP 服务，外部服务使用 HTTPS。不支持 JSON 格式选项的服务可取消“请求 JSON 格式回复”。
 
@@ -122,7 +141,7 @@ Fish Audio 填写完整 `/v1/tts` 地址、密钥、模型及可选音色ID，�
 ## 检查
 
 ```text
-python -m unittest scripts.test_window_backend scripts.test_window_settings scripts.test_story_memory scripts.test_capture scripts.test_memory_management scripts.test_continuity scripts.test_characters
+python -m unittest scripts.test_window_backend scripts.test_window_settings scripts.test_story_memory scripts.test_capture scripts.test_memory_management scripts.test_continuity scripts.test_characters scripts.test_delivery
 python scripts/audit_upload.py
 ```
 
@@ -137,5 +156,7 @@ python scripts/audit_upload.py
 `scripts/test_continuity.py` 验证阅读回顾持久化、手记版本、回档与分支建立时的边界、模型材料标签与原文依据、分页、清理联动、v1迁移和备份恢复，以及修改手记取消旧回复但不中断取词。`node scripts/verify_continuity.cjs` 自行启动隔离服务，在最小窗口验证留疑问、编辑/标记、回档、重新打开、引用、文本转义、迟到回复、删除和备份恢复。全程使用自编文字，不调用云接口。
 
 `scripts/test_characters.py` 验证称呼纠正、单句指代、修改版本、分支截止、原文保留、分页、备份兼容和取消旧回复；`node scripts/verify_characters.cjs` 自启隔离服务，检查小窗中的核对、勾选、修改、回档、重新打开、删除、迟到回复及恢复。使用自编文字，不调用云接口。
+
+`scripts/test_delivery.py` 检查源码与打包的数据位置、指定目录、只读检查、无模型下的共读和打包排除规则。构建后设置 `YUKI_ALPHA_EXE` 为实际可执行文件，再运行 `node scripts/verify_delivery.cjs`：清除开发环境路径，使用独立资料目录和仅本机的聊天替身，验证首次引导、纸签操作栏、粘贴退路、保存不调用模型、明确测试/发送、原文依据及重新打开。不会读取真实记忆或调用云服务。
 
 上传规则采用源码白名单；提交前仍需运行检查。模型和本地资料的缺失是有意安排。

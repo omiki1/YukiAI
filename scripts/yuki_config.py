@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ROOT = Path(__file__).resolve().parents[1]
+from .yuki_paths import data_root
+ROOT = data_root()
 FISH_MODELS = ('s2.1-pro-free', 's2.1-pro', 's2-pro', 's1', 'drama-3')
 
 

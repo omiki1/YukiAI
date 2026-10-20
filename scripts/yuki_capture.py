@@ -15,7 +15,8 @@ from uuid import uuid4
 
 from .yuki_story import StoryConflict
 
-ROOT = Path(__file__).resolve().parents[1]
+from .yuki_paths import data_root
+ROOT = data_root()
 HEADER = re.compile(r'\[([\dA-Fa-f]+):([\dA-Fa-f]+):([\dA-Fa-f]+):([\dA-Fa-f]+):([\dA-Fa-f]+):([^:\r\n]{0,120}):(.{0,480}?)\] ?')
 
 

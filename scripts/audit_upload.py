@@ -6,13 +6,16 @@ import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
 ROOT_FILES={'.gitignore','.env.example','README.md','requirements.txt','start_yuki.py','start_yuki.cmd','rebuild_frontend.cmd'}
+ROOT_FILES.update({'requirements-build.txt','setup_yuki.cmd'})
 APP_FILES={'app/'+x for x in ['package.json','package-lock.json','tsconfig.json','vite.config.ts','index.html']}
 SCRIPT_FILES={'scripts/'+x for x in ['settings.py','yuki_chat.py','yuki_history.py','yuki_server.py','yuki_window.py','yuki_config.py','yuki_speech.py','yuki_story.py','yuki_capture.py','install_textractor.py','test_capture.py','verify_capture_native.py','verify_capture.cjs','test_story_memory.py','verify_story.cjs','test_window_backend.py','test_window_settings.py','verify_window.cjs','audit_upload.py']}
 CORE_FILES={'app/vendor/live2d/Core/'+x for x in ['live2dcubismcore.d.ts','LICENSE.md','RedistributableFiles.txt']}
 SCRIPT_FILES.update({'scripts/yuki_memory.py','scripts/test_memory_management.py','scripts/verify_memory.cjs'})
 SCRIPT_FILES.update({'scripts/test_continuity.py','scripts/verify_continuity.cjs'})
 SCRIPT_FILES.update({'scripts/yuki_characters.py','scripts/test_characters.py','scripts/verify_characters.cjs'})
+SCRIPT_FILES.update({'scripts/yuki_paths.py','scripts/build_alpha.py','scripts/test_delivery.py','scripts/verify_delivery.cjs'})
 OTHER_FILES={'docs/PUBLISHING.md','docs/SYSTEM.md','docs/WORKLOG.md','third_party/README.md','third_party/Open-LLM-VTuber-MIT.txt'}
+OTHER_FILES.add('docs/PRODUCT_ROADMAP.md')
 EXTENSIONS={'.pem','.key','.p12','.pfx','.moc3','.png','.jpg','.jpeg','.webp','.kra','.psd','.ora','.zip','.wav','.mp3','.mp4','.onnx','.safetensors','.pt','.pth','.ckpt','.gguf'}
 PATTERNS=[rb'\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{40,})\b',
           rb'\bsk-(?:fish-|proj-)?[A-Za-z0-9_-]{20,}\b',

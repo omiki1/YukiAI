@@ -4,6 +4,8 @@
 !/.env.example
 !/README.md
 !/requirements.txt
+!/requirements-build.txt
+!/setup_yuki.cmd
 !/start_yuki.py
 !/start_yuki.cmd
 !/rebuild_frontend.cmd
@@ -38,6 +40,10 @@
 !/scripts/test_continuity.py
 !/scripts/verify_continuity.cjs
 !/scripts/yuki_characters.py
+!/scripts/yuki_paths.py
+!/scripts/build_alpha.py
+!/scripts/test_delivery.py
+!/scripts/verify_delivery.cjs
 !/scripts/test_characters.py
 !/scripts/verify_characters.cjs
 !/scripts/yuki_server.py
@@ -62,6 +68,7 @@
 !/docs/PUBLISHING.md
 !/docs/SYSTEM.md
 !/docs/WORKLOG.md
+!/docs/PRODUCT_ROADMAP.md
 !/third_party/
 /third_party/*
 !/third_party/README.md

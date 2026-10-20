@@ -10,7 +10,8 @@ import sqlite3
 from uuid import uuid4
 from .yuki_characters import CharacterStoreMixin, corrected_people, pronouns
 
-ROOT = Path(__file__).resolve().parents[1]
+from .yuki_paths import data_root
+ROOT = data_root()
 
 
 class StoryConflict(ValueError):

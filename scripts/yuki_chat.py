@@ -84,18 +84,11 @@ SPOILER_RE = re.compile(
 
 
 def story_corpus(snapshot, question=''):
-    parts = [question or '', getattr(snapshot, 'title', '') or '']
+    # A question, past answer, catalog, or player note cannot prove a plot assertion.
+    # Use precisely the opened text, not the untrimmed raw sentence kept on disk.
+    parts = []
     for event in snapshot.events:
-        parts.extend((event.get('speaker') or '', event.get('text') or '', event.get('raw_text') or ''))
-    for scene in getattr(snapshot, 'scenes', ()) or ():
-        parts.append(scene.get('summary') or '')
-    for person in getattr(snapshot, 'characters', ()) or ():
-        parts.append(person.get('name') or '')
-        parts.extend(person.get('aliases') or [])
-        for item in (person.get('claims') or []) + (person.get('witnessed') or []):
-            parts.append(item.get('text') or '')
-    for message in getattr(snapshot, 'messages', ()) or ():
-        parts.append(message.get('content') or '')
+        parts.extend((event.get('speaker') or '', event.get('text') or ''))
     return re.sub(r'\s+', '', '\n'.join(parts))
 
 

@@ -13,7 +13,7 @@ export class ModelToolbar{
   avatar.onLayout=()=>this.capture();
   this.resize=new ResizeObserver(()=>this.position());this.resize.observe(this.bar);
   this.panels=new MutationObserver(()=>{this.position();this.refresh();});
-  for(const id of ['settings','story-panel','memories'])this.panels.observe(document.getElementById(id),{attributes:true,attributeFilter:['hidden']});
+  for(const id of ['settings','story-panel','memories','quickstart'])this.panels.observe(document.getElementById(id),{attributes:true,attributeFilter:['hidden']});
   this.listen(document,'pointermove',((event:PointerEvent)=>{this.pointer={x:event.clientX,y:event.clientY};this.refresh();}) as EventListener);
   this.listen(document,'pointerdown',((event:PointerEvent)=>{this.keyboard=false;this.pointer={x:event.clientX,y:event.clientY};this.refresh();}) as EventListener);
   this.listen(document.documentElement,'pointerleave',()=>{this.pointer=null;this.refresh();});
@@ -30,10 +30,9 @@ export class ModelToolbar{
   }) as EventListener);
  }
  private listen(target:EventTarget,event:string,handler:EventListener){target.addEventListener(event,handler);this.listeners.push(()=>target.removeEventListener(event,handler));}
- private panelOpen(){return ['settings','story-panel','memories'].some(id=>!document.getElementById(id).hidden);}
+ private panelOpen(){return ['settings','story-panel','memories','quickstart'].some(id=>!document.getElementById(id).hidden);}
  private capture(){
-  const canvas=this.avatar.canvas,gl=this.avatar.gl;this.width=canvas.width;this.height=canvas.height;
-  const pixels=new Uint8Array(this.width*this.height*4);gl.readPixels(0,0,this.width,this.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+  const {pixels,width,height}=this.avatar.pixels();this.width=width;this.height=height;
   this.alpha=new Uint8Array(this.width*this.height);
   let left=this.width,right=-1,top=this.height;
   for(let y=0;y<this.height;y++)for(let x=0;x<this.width;x++){
@@ -61,7 +60,7 @@ export class ModelToolbar{
   let hovering=false;
   if(this.pointer){
    const {x,y}=this.pointer,target=document.elementFromPoint(x,y);
-   hovering=this.bar.contains(target)||!!target&&!target.closest('.dialogue,#dialogue-restore,.settings,#story-panel,.memories')&&this.overModel(x,y);
+   hovering=this.bar.contains(target)||!!target&&!target.closest('.dialogue,#dialogue-restore,.settings,#story-panel,.memories,#quickstart')&&this.overModel(x,y);
   }
   if(hovering||this.failed||this.panelOpen()||this.keyboard&&this.bar.contains(document.activeElement)){this.show();return;}
   // Leave enough time to cross the small gap from the character to its controls.

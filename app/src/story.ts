@@ -20,6 +20,7 @@ export class StoryPanel{
   $('story-new-form').onsubmit=event=>{event.preventDefault();const novel=$('story-mode').value==='novel';this.action('runs',{title:$('story-game-title').value,name:$('story-run-name').value,mode:novel?'novel':'galgame'},novel?'已建立小说共读，可以收录读过的段落了。':'已建立共读，可以收录已读文本了。').then(ok=>{if(ok){$('story-new-form').hidden=true;$('story-game-title').value='';$('story-run-name').value='';this.tab('import');}});};
   document.querySelectorAll<HTMLButtonElement>('[data-story-tab]').forEach(button=>button.onclick=()=>this.tab(button.dataset.storyTab));
   $('story-kind').onchange=()=>{$('story-speaker-field').hidden=$('story-kind').value!=='dialogue';$('story-confirm').checked=false;};
+  $('capture-manual').onclick=()=>{this.tab('import');$('story-text').focus();this.message(this.active?'粘贴已经读过的文字，核对后收录。':'先点“新共读”，再粘贴已读文字。');};
   $('story-text').oninput=()=>{$('story-confirm').checked=false;};
   $('story-import-form').onsubmit=event=>{event.preventDefault();this.importText();};
   $('story-bookmark-form').onsubmit=event=>{event.preventDefault();this.action('bookmarks',{name:$('story-bookmark-name').value},'书签已留下，读档后可以回到这里。').then(ok=>{if(ok)$('story-bookmark-name').value='';});};
@@ -41,6 +42,7 @@ export class StoryPanel{
   if(!this.state||signature(data)!==signature(this.state))this.apply(data);
  }
  open(){this.opening();$('story-panel').hidden=false;$('story-toggle').setAttribute('aria-expanded','true');$('story-close').focus();this.load().catch(e=>this.message(e.message,true));}
+ beginReading(newReading=false){this.open();const current=!!this.active&&!newReading;this.tab(current?'import':'new');$(current?'story-text':'story-game-title').focus();}
  close(){if(this.busy||$('story-panel').hidden)return;$('story-panel').hidden=true;$('story-toggle').setAttribute('aria-expanded','false');$('story-toggle').focus();}
  private tab(name:string){document.querySelectorAll<HTMLElement>('[data-story-pane]').forEach(pane=>pane.hidden=pane.dataset.storyPane!==name);document.querySelectorAll<HTMLElement>('[data-story-tab]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.storyTab===name)));$('story-new-toggle').setAttribute('aria-expanded',String(name==='new'));if(name==='capture')this.capture.open();if(name==='manage')this.memory.open();}
  private message(text:string,error=false){$('story-status').textContent=text;$('story-status').title=text;$('story-status').classList.toggle('error',error);}

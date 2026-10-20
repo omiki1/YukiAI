@@ -8,6 +8,7 @@ process.env.TEMP=process.env.TMP=path.join(root,'.cache');
  const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  try{
   const page=await browser.newPage({viewport:{width:320,height:460}}),errors=[],external=[],requests=[];
+  await page.addInitScript(()=>localStorage.setItem('yuki.guide.dismissed','1'));
   const touchModel=async(targetPage=page)=>{
    const point=await targetPage.locator('canvas').evaluate(c=>{
     const gl=c.getContext('webgl2')||c.getContext('webgl'),pixels=new Uint8Array(c.width*c.height*4),r=c.getBoundingClientRect();gl.readPixels(0,0,c.width,c.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
@@ -114,6 +115,7 @@ process.env.TEMP=process.env.TMP=path.join(root,'.cache');
    await page.evaluate(value=>window.yuki.avatar.setScale(value),scale);await page.waitForTimeout(150);const point=await touchModel(),bar=await page.locator('.window-bar').boundingBox();assert.ok(bar.y>=0&&bar.y+bar.height<=point.top+1&&bar.x>=0&&bar.x+bar.width<=320);
   }
   const retina=await browser.newPage({viewport:{width:280,height:380},deviceScaleFactor:2});retina.on('pageerror',error=>errors.push(String(error)));
+  await retina.addInitScript(()=>localStorage.setItem('yuki.guide.dismissed','1'));
   await retina.route('**/*',route=>{if(!route.request().url().startsWith(origin)){external.push(route.request().url());return route.abort();}return route.continue();});
   await retina.goto(origin,{waitUntil:'networkidle'});await retina.waitForFunction(()=>window.yuki?.avatar.ready&&window.yuki.avatar.time>.3);
   await touchModel(retina);const retinaBar=await retina.locator('.window-bar').boundingBox();assert.ok(retinaBar.x>=0&&retinaBar.x+retinaBar.width<=280);await retina.locator('#settings-toggle').click();assert.equal(await retina.locator('#settings').isVisible(),true);await retina.close();

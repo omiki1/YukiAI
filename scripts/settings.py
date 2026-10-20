@@ -1,7 +1,8 @@
 import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from .yuki_paths import data_root
+ROOT = data_root()
 
 def load_local_settings():
     """Load server-side credentials without printing them or sending them to the browser."""

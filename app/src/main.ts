@@ -1,10 +1,12 @@
 import './style.css';
+import './compat';
 import {Avatar} from './avatar';
 import {api} from './api';
 import {SettingsPanel} from './settings';
 import {SpeechPlayer} from './speech';
 import {StoryPanel,StoryEvidence} from './story';
 import {ModelToolbar} from './toolbar';
+import {QuickStart,exampleText} from './quickstart';
 declare global{interface Window{qt?:any;QWebChannel?:any;yuki:any;}}
 type Turn={role:string;content:string;emotion?:string;evidence?:StoryEvidence[];answer_type?:string;note_revision?:number};
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -18,6 +20,11 @@ const speech=new SpeechPlayer(busy=>{$('voice-stop').hidden=!busy;$('settings-vo
 const settings=new SettingsPanel(avatar,speech,data=>{voiceEnabled=data.voice.enabled&&!previewMode;if(!voiceEnabled)speech.stop();});
 const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');},changeHistory);
 const toolbar=new ModelToolbar(avatar);
+const guide=new QuickStart(()=>settings.open('llm'),()=>story.beginReading(true),async()=>{
+ if(loadTask)await loadTask;
+ await story.load();if(!await story.action('runs',{title:'初次体验 · 自编短篇',name:'雨后的走廊',mode:'galgame'},'已建立独立的体验共读。'))throw new Error('体验共读未能建立，请稍后重试。');
+ if(!await story.action('import',{run_id:story.active.id,text:exampleText,kind:'auto',speaker:'',request_id:globalThis.crypto?.randomUUID?.()||'guide-'+Date.now().toString(36)+Math.random().toString(36).slice(2),confirmed_read:true},'三句体验原文已存入本机。'))throw new Error('原文未能保存，可以打开剧情记录重试。');
+},()=>{setComposer(true,true);$<HTMLTextAreaElement>('message').value='美咲为什么把另一把伞留在那里？我们按刚读的这段聊聊。';},()=>{story.close();settings.close();closeMenu();setComposer(false);$('memories').hidden=true;});
 $('settings-toggle').addEventListener('click',()=>{story.close();closeMenu();setComposer(false);},true);
 function closeMenu(){$('dialogue-tools').hidden=true;$('more-toggle').setAttribute('aria-expanded','false');}
 function setComposer(open:boolean,focus=false){$('composer').hidden=!open;$('chat-toggle').textContent=open?'收起输入':'聊聊';$('chat-toggle').setAttribute('aria-expanded',String(open));if(open&&focus)$('message').focus();}
@@ -75,6 +82,7 @@ async function initialize(){
  const status=await api('status');previewMode=status.preview;await settings.load();session=localStorage.getItem('yuki.session')||'';
  if(session){try{const data=await api('sessions/'+encodeURIComponent(session));turns=data.messages;const last=[...turns].reverse().find(x=>x.role==='ai');if(last){$('reply').textContent=last.content;fullText=last.content;}}catch{session='';}}
  if(!session)await newSession(true);classicTurns=turns;await story.load();if(!status.chat_enabled)hint(status.preview?'预览中，外部接口不会调用。':'鼠标移到 Yuki 上方，打开设置接上聊天服务吧。');
+ if(!status.chat_enabled&&!story.state.runs.length&&!localStorage.getItem('yuki.guide.dismissed'))await guide.open();
 }
 $('line').addEventListener('click',()=>{if(typing)reveal();else expandReply();});$('line').addEventListener('keydown',e=>{if((e as KeyboardEvent).key==='Enter'){e.preventDefault();if(typing)reveal();else expandReply();}});
 $('reply-expand').onclick=()=>expandReply();

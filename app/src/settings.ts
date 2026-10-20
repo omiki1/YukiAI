@@ -23,12 +23,13 @@ export class SettingsPanel{
   });
  }
  async load(){this.data=await api('settings');this.avatar.setScale(this.data.avatar_scale);this.saved(this.data);}
- async open(){
+ async open(tab?:string){
   if(!this.data)await this.load();this.draft=JSON.parse(JSON.stringify(this.data));this.provider=this.draft.voice.provider;
   $('avatar-scale').value=String(Math.round(this.data.avatar_scale*100));this.preview();
   for(const [id,key] of [['llm-url','base_url'],['llm-model','model']])$(id).value=this.draft.llm[key];
   this.fillKey('llm',this.draft.llm);$('llm-json').checked=this.draft.llm.json_mode;$('voice-enabled').checked=this.draft.voice.enabled;
   $('voice-provider').value=this.provider;this.fillVoice();$('settings').hidden=false;$('settings-toggle').setAttribute('aria-expanded','true');this.message('保存配置不会自动调用接口。');$('settings-close').focus();
+  if(tab)document.querySelector<HTMLButtonElement>('[data-tab="'+tab+'"]').click();
  }
  close(){if(this.busy)return;this.avatar.setScale(this.data?.avatar_scale??.85);$('llm-key').value='';$('voice-key').value='';this.draft=null;$('settings').hidden=true;$('settings-toggle').setAttribute('aria-expanded','false');$('settings-toggle').focus();}
  private preview(){const value=Number($('avatar-scale').value);$('scale-value').textContent=value+'%';this.avatar.setScale(value/100);}

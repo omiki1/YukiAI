@@ -6,7 +6,11 @@ import tempfile
 import urllib.request
 import zipfile
 
-ROOT = Path(__file__).resolve().parents[1]
+try:
+    from .yuki_paths import data_root
+except ImportError:
+    from yuki_paths import data_root
+ROOT = data_root()
 VERSION = '5.2.0'
 URL = f'https://github.com/Artikash/Textractor/releases/download/v{VERSION}/Textractor-{VERSION}-Zip-Version-English-Only.zip'
 SHA256 = '3efdcf390261fcfb6a44220113c68b06eba22a3ef441ac618208238b52ee7974'
