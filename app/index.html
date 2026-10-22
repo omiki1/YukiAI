@@ -17,64 +17,68 @@
     <button id="dialogue-restore" hidden aria-label="展开对话框">◇ Yuki · 聊两句</button>
     <section id="quickstart" hidden role="dialog" aria-modal="true" aria-labelledby="guide-title">
       <header><div><span class="guide-eyebrow">Yuki · 初次共读</span><h1 id="guide-title">从几句剧情开始</h1></div><button id="guide-close" aria-label="稍后再看使用引导">×</button></header>
-      <div class="guide-content"><p>我陪你回想已经读过的剧情，也记下你的疑问和猜测。</p>
-        <article><h2>1 · 接上聊天服务</h2><p id="guide-connection"></p><button id="guide-connect">配置与测试聊天</button><p class="guide-note">使用你自己的接口。发送消息时，问题、选出的已读片段及相关讨论会交给该服务；云服务可能收费。本机接口也可使用。</p></article>
-        <article><h2>2 · 放入已读剧情</h2><p id="guide-reading"></p><button id="guide-manual">粘贴我的剧情</button><p class="guide-note">自动取词无法连接时，仍可粘贴。没有读过的脚本请不要整篇导入。</p><details><summary>还没开游戏？用三句自编故事体验</summary><pre id="guide-example-text"></pre><button id="guide-example">我已读完，用它体验</button><p class="guide-note">单独建立体验共读，不覆盖你的游戏。保存和整理原文不调用云接口。</p></details></article>
-        <article><h2>3 · 一起聊，随时看原句</h2><p>回复旁的“依据”可回看原文。猜测仍是猜测，引用也不能保证推断正确。</p><button id="guide-discuss" disabled>准备一个剧情问题</button><p class="guide-note">只填入问题，由你点击发送。热门作品仍可能被模型误判或漏出后文。</p></article>
-      </div><footer id="guide-status" role="status"></footer>
+      <div class="guide-content">
+        <article><h2>1 · 聊天接口</h2><p id="guide-connection"></p><button id="guide-connect">配置与测试</button></article>
+        <article><h2>2 · 开始共读</h2><p id="guide-reading"></p><button id="guide-manual">选择游戏或小说</button><p class="guide-note">游戏中按 Ctrl+Alt+Y 定位台词。</p><details><summary id="guide-example-toggle">体验示例</summary><pre id="guide-example-text"></pre><button id="guide-example">已读完，开始体验</button></details></article>
+        <article><h2>3 · 聊聊剧情</h2><button id="guide-discuss" disabled>准备一个问题</button></article>
+        <details><summary>数据与接口</summary><p class="guide-note">剧情保存在本机。发送问题时，相关片段会交给所配接口；费用由服务方收取。读屏图片不上传。</p></details>
+      </div><footer id="guide-status" role="status" hidden></footer>
     </section>
     <section id="memories" class="memories" hidden aria-label="本次对话回想"><header><span>回 想</span><button id="history-close" aria-label="关闭回想">×</button></header><div id="history-lines"></div></section>
     <section id="story-panel" hidden role="dialog" aria-modal="true" aria-labelledby="story-title">
       <header class="story-header"><div><h1 id="story-title">一起读到这里</h1><p id="story-position">先建立一篇共读</p><p id="story-progress" class="story-note" hidden></p></div><button id="story-close" aria-label="关闭剧情记录">×</button></header>
       <div class="story-picker"><label class="sr-only" for="story-run">当前共读</label><select id="story-run"><option value="">普通聊天</option></select><button id="story-new-toggle" type="button" aria-expanded="false" aria-controls="story-new-form">新共读</button></div>
-      <nav class="story-tabs" aria-label="剧情记录分类"><button type="button" data-story-tab="events" aria-pressed="true">原文</button><button type="button" data-story-tab="timeline" aria-pressed="false">脉络</button><button type="button" data-story-tab="import" aria-pressed="false">收录</button><button type="button" data-story-tab="bookmarks" aria-pressed="false">书签与路线</button><button type="button" data-story-tab="capture" aria-pressed="false">自动取词</button><button type="button" data-story-tab="manage" aria-pressed="false">记忆管理</button></nav>
+      <nav class="story-tabs" aria-label="剧情记录分类"><button type="button" data-story-tab="events" aria-pressed="true">原文</button><button type="button" data-story-tab="game" aria-pressed="false">游戏共读</button><button type="button" data-story-tab="timeline" aria-pressed="false">脉络</button><button type="button" data-story-tab="import" aria-pressed="false">收录</button><button type="button" data-story-tab="bookmarks" aria-pressed="false">书签与路线</button><button type="button" data-story-tab="capture" aria-pressed="false">连续取词</button><button type="button" data-story-tab="manage" aria-pressed="false">记忆管理</button></nav>
       <div class="story-content">
+        <section data-story-pane="game" hidden aria-label="游戏唤醒与剧情定位">
+          <h2>记录台词</h2><p id="game-sync-status" class="story-note">尚未连接</p><button id="game-sync" type="button">连接游戏</button>
+          <h2>定位剧情</h2><p class="story-note">选择文字区域后，在游戏中按 Ctrl+Alt+Y。</p>
+          <button id="game-setup" type="button" disabled>选择游戏与文字区域</button><button id="game-read" type="button" disabled>读取选定游戏</button><p id="game-status" role="status" class="story-note"></p>
+          <div id="game-preview" hidden><label for="game-text">核对当前画面文字</label><textarea id="game-text" rows="4" maxlength="6000"></textarea><button id="game-locate" type="button">重新匹配剧情</button><label id="game-match-row" hidden>匹配位置<select id="game-match"></select></label><label for="game-question">想和她聊什么（可留空）</label><textarea id="game-question" rows="2" maxlength="1000" placeholder="她刚才这句话，是不是在回避什么？"></textarea><button id="game-confirm" type="button">定位并准备聊天</button><button id="game-discard" type="button">放弃这次读取</button></div>
+        </section>
         <form id="story-new-form" data-story-pane="new" hidden><label for="story-mode">读的是</label><select id="story-mode"><option value="galgame">Galgame</option><option value="novel">小说</option></select><label id="story-title-label" for="story-game-title">游戏名称</label><input id="story-game-title" type="text" maxlength="100" placeholder="你正在玩的中文版游戏" required><label for="story-run-name">这篇共读的名字</label><input id="story-run-name" type="text" maxlength="60" placeholder="初见共读"><button type="submit">建立共读</button></form>
-        <div data-story-pane="events"><div id="story-evidence" hidden><h2>关联的原文依据</h2><p class="story-note">这些是关联的已读原句。角色的说辞仍要单独判断。</p><div id="story-evidence-lines"></div><button id="story-evidence-back" type="button">返回全部已读原文</button></div><div id="story-all-events">
+        <div data-story-pane="events"><div id="story-evidence" hidden><h2>关联原文</h2><div id="story-evidence-lines"></div><button id="story-evidence-back" type="button">返回原文</button></div><div id="story-all-events">
           <section id="continuity" aria-label="阅读回顾和共读手记">
             <details id="continuity-recap-box"><summary>接着上次读</summary><p id="continuity-location" class="story-note"></p><div id="continuity-recap"></div><div id="continuity-topics"></div><button id="continuity-refresh" type="button">刷新回顾</button></details>
-            <details id="continuity-notes-box"><summary>共读手记 <span id="continuity-count"></span></summary><p class="story-note">记下疑问、猜测和感受。关联原文方便回看；标记“已聊清楚”不代表猜测已成事实。</p><div id="continuity-notes"></div><button id="continuity-more" type="button" hidden>更早的手记</button><button id="continuity-new" type="button">写一条手记</button>
+            <details id="continuity-notes-box"><summary>共读手记 <span id="continuity-count"></span></summary><div id="continuity-notes"></div><button id="continuity-more" type="button" hidden>更早的手记</button><button id="continuity-new" type="button">写一条手记</button>
               <form id="continuity-form" hidden><label for="continuity-text">想留到以后继续聊的事</label><textarea id="continuity-text" rows="3" maxlength="800" required></textarea><div class="continuity-fields"><label for="continuity-kind">记作<select id="continuity-kind"><option value="question">疑问</option><option value="theory">猜测</option><option value="feeling">感受</option></select></label><label for="continuity-state">状态<select id="continuity-state"><option value="open">留着继续聊</option><option value="resolved">已聊清楚</option></select></label></div><label id="continuity-link-field" class="story-check"><input id="continuity-link" type="checkbox">关联当前最后一句原文</label><div class="continuity-actions"><button id="continuity-save" type="submit">保存手记</button><button id="continuity-cancel" type="button">取消</button></div></form>
             </details><p id="continuity-status" class="story-note" role="status"></p>
           </section>
-          <details id="character-panel"><summary>人物与称呼 <span id="character-count"></span></summary><p class="story-note">纠正 Yuki 的认人方式，保留原台词。称呼对应不证明隐藏身份；“她/他”只用于指定那一句的讨论。</p><div id="character-list"></div><button id="character-more" type="button" hidden>更早的纠正</button><button id="character-new" type="button">纠正人物对应</button>
+          <details id="character-panel"><summary>人物与称呼 <span id="character-count"></span></summary><div id="character-list"></div><button id="character-more" type="button" hidden>更早的纠正</button><button id="character-new" type="button">纠正人物对应</button>
             <form id="character-form" hidden><label for="character-kind">纠正什么</label><select id="character-kind"><option value="alias">称呼对应</option><option value="pronoun">这句的“她/他”</option></select><label id="character-alias-field" for="character-label">原文里的称呼<input id="character-label" maxlength="30" placeholder="例如：班长"></label><label id="character-pronoun-field" for="character-pronoun" hidden>讨论里的指代<select id="character-pronoun"><option value="她">她</option><option value="他">他</option></select></label><label for="character-target">指的是谁<input id="character-target" list="character-targets" maxlength="30" placeholder="已读原文中出现的人物"></label><datalist id="character-targets"></datalist><p id="character-scope" class="story-note"></p><button id="character-preview-button" type="button">核对关联原文</button>
               <div id="character-preview" hidden><p id="character-description"></p><div id="character-evidence"></div><label class="story-check"><input id="character-agree" type="checkbox">我已核对，这是称呼或指代纠正</label></div><div class="continuity-actions"><button id="character-save" type="submit" disabled>保存纠正</button><button id="character-cancel" type="button">取消</button></div></form><p id="character-status" class="story-note" role="status"></p>
-          </details><details id="story-memory"><summary>目前记得</summary><div id="story-memory-body"></div></details><p class="story-note">仅显示当前路线、当前进度内的原文。可点“读到这里”校准进度。</p><button id="story-before" type="button" hidden>更早的原文</button><div id="story-events"></div><button id="story-next" type="button" hidden>我已重读下一句，前进一步</button></div></div>
+          </details><details id="story-memory"><summary>目前记得</summary><div id="story-memory-body"></div></details><button id="story-before" type="button" hidden>更早的原文</button><div id="story-events"></div><button id="story-next" type="button" hidden>我已重读下一句，前进一步</button></div></div>
         <section id="timeline-panel" data-story-pane="timeline" aria-label="故事脉络卡片" hidden>
           <p id="timeline-location" class="timeline-location"></p>
           <details id="timeline-filters"><summary>筛选卡片 <span id="timeline-count" aria-live="polite"></span></summary><form id="timeline-filter" role="search" aria-label="筛选故事卡片"><div class="timeline-fields"><label for="timeline-kind">卡片<select id="timeline-kind"><option value="all">全部类型</option><option value="event">原文片段</option><option value="statement">人物说辞</option><option value="choice">选项节点</option><option value="chapter">章节</option><option value="note">玩家手记</option></select></label><label for="timeline-person">说话者<select id="timeline-person"><option value="">所有说话者</option></select></label></div><label class="sr-only" for="timeline-query">在已读卡片中搜索</label><input id="timeline-query" type="search" maxlength="80" placeholder="找台词、线索或手记"><div class="timeline-actions"><button type="submit">查找</button><button id="timeline-clear" type="button">清除筛选</button></div></form></details>
           <form id="timeline-note-form" hidden><label for="timeline-note-text">留下想继续聊的事</label><textarea id="timeline-note-text" rows="3" maxlength="800" required></textarea><label for="timeline-note-kind">记作<select id="timeline-note-kind"><option value="question">疑问</option><option value="theory">猜测</option><option value="feeling">感受</option></select></label><p id="timeline-note-source" class="story-note"></p><div class="timeline-actions"><button type="submit">保存想法</button><button id="timeline-note-cancel" type="button">取消</button></div></form>
-          <p id="timeline-status" class="story-note" role="status"></p><button id="timeline-more" type="button" hidden>更早的卡片</button><div id="timeline-cards" class="timeline-cards"></div><p class="story-note">连线仅表示阅读先后。倒叙和角色说辞不代表真实时间或因果关系；手记按写下时的阅读位置显示。</p>
+          <p id="timeline-status" class="story-note" role="status"></p><button id="timeline-more" type="button" hidden>更早的卡片</button><div id="timeline-cards" class="timeline-cards"></div>
         </section>
-        <div data-story-pane="import" hidden><form id="story-import-form"><label for="story-text">粘贴已经读过的中文剧情</label><textarea id="story-text" maxlength="60000" rows="6" placeholder="美咲：昨晚我没有离开宿舍。&#10;旁白：她避开了你的目光。" required></textarea><p class="story-note">每行作为一段原文，空行跳过。不要粘贴尚未阅读的整部脚本。</p><label for="story-kind">这段内容是</label><select id="story-kind"><option value="auto">自动辨认对白、旁白和选项</option><option value="dialogue">人物对白</option><option value="narration">旁白</option><option value="choice">选项</option></select><div id="story-speaker-field" hidden><label for="story-speaker">说话者（可留空）</label><input id="story-speaker" type="text" maxlength="30"></div><label class="story-check"><input id="story-confirm" type="checkbox" required>这些内容我已经读过</label><button id="story-import-submit" type="submit">收录并更新进度</button><p class="story-note">在回退位置收录新内容，会另存为分支，原路线继续保留。</p></form></div>
-        <div data-story-pane="bookmarks" hidden><form id="story-bookmark-form"><label for="story-bookmark-name">在当前进度留个书签</label><div class="story-inline"><input id="story-bookmark-name" type="text" maxlength="60" placeholder="例如：旧校舍前的选项"><button type="submit">留书签</button></div></form><div id="story-bookmarks"></div><hr><form id="story-fork-form"><label for="story-branch-name">从当前位置开启另一条路线</label><div class="story-inline"><input id="story-branch-name" type="text" maxlength="60" placeholder="新路线的名字（可留空）"><button type="submit">分支</button></div></form><label for="story-branch">切换路线（回到该路线已记录的末尾）</label><select id="story-branch"></select><p class="story-note">读档后请在这里恢复书签或校准进度。Yuki 的讨论会随当前路线一起切换。</p></div>
+        <div data-story-pane="import" hidden><form id="story-import-form"><label for="story-text">粘贴已经读过的中文剧情</label><textarea id="story-text" maxlength="60000" rows="6" required></textarea><p class="story-note">每行一段。</p><label for="story-kind">这段内容是</label><select id="story-kind"><option value="auto">自动辨认对白、旁白和选项</option><option value="dialogue">人物对白</option><option value="narration">旁白</option><option value="choice">选项</option></select><div id="story-speaker-field" hidden><label for="story-speaker">说话者（可留空）</label><input id="story-speaker" type="text" maxlength="30"></div><label class="story-check"><input id="story-confirm" type="checkbox" required>这些内容我已经读过</label><button id="story-import-submit" type="submit">收录并更新进度</button><p class="story-note">回看时新增内容会另存路线。</p></form></div>
+        <div data-story-pane="bookmarks" hidden><form id="story-bookmark-form"><label for="story-bookmark-name">在当前进度留个书签</label><div class="story-inline"><input id="story-bookmark-name" type="text" maxlength="60" placeholder="例如：旧校舍前的选项"><button type="submit">留书签</button></div></form><div id="story-bookmarks"></div><hr><form id="story-fork-form"><label for="story-branch-name">从当前位置开启另一条路线</label><div class="story-inline"><input id="story-branch-name" type="text" maxlength="60" placeholder="新路线的名字（可留空）"><button type="submit">分支</button></div></form><label for="story-branch">路线（切换至记录末尾）</label><select id="story-branch"></select><p class="story-note">读档后恢复对应书签。</p></div>
         <div id="capture-panel" data-story-pane="capture" hidden>
-          <p id="capture-install" class="story-note" hidden>取词工具尚未准备，可先粘贴已读文字开始共读。</p><button id="capture-manual" type="button">取词不顺？改用粘贴</button>
+          <h2 id="capture-stage" class="story-note" role="status">1 / 3 · 选择并连接游戏</h2>
+          <div id="capture-install" hidden><p class="story-note">首次使用需下载 Textractor。</p><button id="capture-install-button" type="button">准备取词工具</button></div>
           <label for="capture-process">正在运行的游戏</label><select id="capture-process"><option value="">选择游戏窗口</option></select>
           <div class="capture-actions"><button id="capture-refresh" type="button">刷新游戏</button><button id="capture-attach" type="button">连接游戏</button></div>
           <p id="capture-game" class="story-note">尚未连接游戏</p>
           <div id="capture-connected" hidden>
             <label for="capture-thread">选择正文来源</label><select id="capture-thread"><option value="">先推进台词，再选择正文来源</option></select>
-            <p id="capture-preview" class="capture-preview">等待游戏的新台词……</p><p id="capture-source" class="story-note"></p>
-            <p class="story-note">选中文字与游戏正文一致的来源，避开菜单。这里只预览新台词，不读取整部游戏脚本。</p>
-            <label for="capture-kind">正文类型</label><select id="capture-kind"><option value="auto">自动辨认姓名、旁白与选项</option><option value="dialogue">人物对白</option><option value="narration">旁白</option><option value="choice">选项</option></select>
-            <div id="capture-speaker-field" hidden><label for="capture-speaker">说话者（可留空）</label><input id="capture-speaker" maxlength="30"></div>
-            <button id="capture-select" type="button">使用这个来源</button>
-            <p class="story-note">姓名与正文分开时，先选正文；无法识别的姓名会留空。</p>
+            <p id="capture-preview" class="capture-preview">等待游戏的新台词……</p>
             <p id="capture-target" class="story-note"></p>
-            <label class="story-check"><input id="capture-confirm" type="checkbox">确认只记录我正在阅读的正文</label>
-            <div class="capture-actions"><button id="capture-record" type="button">开始记录</button><button id="capture-pause" type="button">暂停</button><button id="capture-detach" type="button">断开</button></div>
+            <label class="story-check"><input id="capture-confirm" type="checkbox">以上预览是我正在阅读的游戏正文</label>
+            <div class="capture-actions"><button id="capture-record" type="button">确认台词并开始记录</button><button id="capture-pause" type="button">暂停</button><button id="capture-detach" type="button">断开</button></div>
             <p id="capture-count" class="story-note">本次已记录 0 句</p>
-            <details class="capture-advanced"><summary>手动 Hook 码</summary><form id="capture-hook-form"><label for="capture-code">自动识别不到正文时填写</label><input id="capture-code" maxlength="440" placeholder="H… 或 R…" spellcheck="false"><button id="capture-code-submit" type="submit">添加 Hook</button></form></details>
+            <details class="capture-advanced"><summary>识别设置与手动 Hook 码</summary><p id="capture-source" class="story-note"></p><label for="capture-kind">正文类型</label><select id="capture-kind"><option value="auto">自动辨认姓名、旁白与选项</option><option value="dialogue">人物对白</option><option value="narration">旁白</option><option value="choice">选项</option></select><div id="capture-speaker-field" hidden><label for="capture-speaker">说话者（可留空）</label><input id="capture-speaker" maxlength="30"></div><button id="capture-select" type="button">只选择来源，暂不记录</button><form id="capture-hook-form"><label for="capture-code">自动识别不到正文时填写 Hook 码</label><input id="capture-code" maxlength="440" placeholder="H… 或 R…" spellcheck="false"><button id="capture-code-submit" type="submit">添加 Hook</button></form></details>
           </div>
-          <p id="capture-status" role="status" class="story-note">连接游戏后，先预览并选择正文来源。</p>
-          <p class="story-note">只收录开始记录后新出现的台词，不自动提问或朗读。读档前请暂停并恢复书签；切换阅读位置后需重新开始记录。关闭 Yuki 会断开游戏。</p>
+          <p id="capture-status" role="status" class="story-note"></p>
+          <p class="story-note">读档前暂停，恢复书签后继续记录。</p>
+          <button id="capture-manual" type="button">手动收录</button>
         </div>
         <div id="memory-panel" data-story-pane="manage" hidden>
           <p id="memory-usage" class="story-note">正在读取本机占用……</p>
           <div class="memory-actions"><button id="memory-refresh" type="button">刷新</button><button id="memory-backup" type="button">备份全部记忆</button><button id="memory-compact" type="button">整理空间</button></div>
-          <p class="story-note">备份存放在本机 data/memory_backups，不含密钥、接口配置和模型。恢复会建立独立副本；删除记录不会自动删除已有备份。</p>
+          <details><summary>备份说明</summary><p class="story-note">备份存放在本机 data/memory_backups，不含密钥、接口配置和模型。恢复会建立独立副本；删除记录不会自动删除已有备份。</p></details>
           <section id="memory-preview" class="memory-preview" hidden aria-label="操作范围预览"><p id="memory-description"></p><label class="story-check"><input id="memory-agree" type="checkbox">我已核对范围，确认执行</label><div class="memory-actions"><button id="memory-confirm" type="button" disabled>确认清理</button><button id="memory-cancel" type="button">取消</button></div></section>
           <p id="memory-status" class="story-note" role="status"></p>
           <h2>共读记录</h2><div id="memory-runs"></div>
@@ -82,34 +86,33 @@
           <details open><summary>本机备份</summary><div id="memory-backups"></div></details>
         </div>
       </div>
-      <footer class="story-footer"><p id="story-status" role="status">原文只保存在本机，收录不会调用模型。</p></footer>
+      <footer class="story-footer" hidden><p id="story-status" role="status"></p></footer>
     </section>
     <section id="settings" class="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <header class="settings-header"><div><h1 id="settings-title">小窗设置</h1><p>接口与密钥只保存在这台电脑</p></div><button id="settings-close" aria-label="关闭设置">×</button></header>
+      <header class="settings-header"><div><h1 id="settings-title">小窗设置</h1></div><button id="settings-close" aria-label="关闭设置">×</button></header>
       <nav class="settings-tabs" aria-label="设置分类"><button type="button" data-tab="appearance" aria-pressed="true">外观</button><button type="button" data-tab="llm" aria-pressed="false">聊天接口</button><button type="button" data-tab="voice" aria-pressed="false">语音接口</button></nav>
       <form id="settings-form" autocomplete="off">
         <div class="settings-body">
-          <div data-pane="appearance"><label for="theme-select">界面主题</label><select id="theme-select"><option value="pixel">像素复古（默认）</option><option value="glass">磨砂玻璃（柔和）</option><option value="paper">纸本衬线（安静）</option><option value="neon">夜间霓虹（游戏感）</option><option value="classic">经典（原来的样子）</option></select><p class="settings-note">选中立即生效，并在本机记住。</p><label for="avatar-scale">角色大小 <output id="scale-value">85%</output></label><input id="avatar-scale" type="range" min="60" max="110" step="1" value="85"><p class="settings-note">拖动即可预览，保存后下次打开也会记住。</p><button id="scale-reset" class="text-button" type="button">恢复推荐大小</button></div>
+          <div data-pane="appearance"><label for="theme-select">界面主题</label><select id="theme-select"><option value="pixel">像素复古（默认）</option><option value="glass">磨砂玻璃（柔和）</option><option value="paper">纸本衬线（安静）</option><option value="neon">夜间霓虹（游戏感）</option><option value="classic">经典（原来的样子）</option></select><label class="check" id="pixel-reply-row"><input id="pixel-reply" type="checkbox" checked>像素主题下，Yuki 的回答也用像素字</label><label for="avatar-scale">角色大小 <output id="scale-value">85%</output></label><input id="avatar-scale" type="range" min="60" max="110" step="1" value="85"><button id="scale-reset" class="text-button" type="button">恢复推荐大小</button></div>
           <div data-pane="llm" hidden>
-            <p class="settings-note">支持 OpenAI 兼容的聊天服务，保存后立即生效。</p>
             <label for="llm-url">接口地址（Base URL）</label><input id="llm-url" type="url" placeholder="https://你的服务地址/v1" maxlength="500" spellcheck="false">
             <label for="llm-key">API Key</label><input id="llm-key" type="password" autocomplete="new-password" placeholder="填写密钥" maxlength="2000"><label class="check"><input id="llm-clear" type="checkbox">清除已保存的聊天密钥</label>
             <label for="llm-model">模型名称</label><input id="llm-model" type="text" placeholder="控制台显示的完整模型 ID" maxlength="200" spellcheck="false">
-            <label class="check"><input id="llm-json" type="checkbox" checked>请求 JSON 格式回复</label><p class="settings-note">服务不支持 JSON 格式选项时可取消，Yuki 仍会要求模型按约定回复。</p>
-            <button id="llm-test" class="secondary" type="button">保存并测试聊天</button><p class="settings-note">测试会向填写的服务发送一句问候。</p>
+            <label class="check"><input id="llm-json" type="checkbox" checked>请求 JSON 格式回复</label>
+            <button id="llm-test" class="secondary" type="button">保存并测试聊天</button>
           </div>
           <div data-pane="voice" hidden>
-            <label class="check"><input id="voice-enabled" type="checkbox">自动朗读 Yuki 的回复</label><p class="settings-note">默认关闭；只朗读文字，不使用麦克风。</p>
+            <label class="check"><input id="voice-enabled" type="checkbox">自动朗读 Yuki 的回复</label>
             <label for="voice-provider">语音服务</label><select id="voice-provider"><option value="fish">Fish Audio</option><option value="openai">OpenAI 兼容语音</option></select>
             <label id="voice-url-label" for="voice-url">完整合成地址</label><input id="voice-url" type="url" maxlength="500" spellcheck="false">
             <label for="voice-key">API Key</label><input id="voice-key" type="password" autocomplete="new-password" placeholder="填写语音服务密钥" maxlength="2000"><label class="check"><input id="voice-clear" type="checkbox">清除当前语音服务的密钥</label>
             <label for="voice-model">语音模型</label><input id="voice-model" type="text" maxlength="200" spellcheck="false" hidden><select id="fish-model"><option value="s2.1-pro-free">s2.1-pro-free（免费档）</option><option value="s2.1-pro">s2.1-pro（付费）</option><option value="s2-pro">s2-pro（付费）</option><option value="s1">s1（付费）</option><option value="drama-3">drama-3（付费）</option></select>
             <label id="voice-id-label" for="voice-id">音色 ID（留空使用服务默认音色）</label><input id="voice-id" type="text" maxlength="200" spellcheck="false">
             <label for="voice-speed">语速</label><input id="voice-speed" type="number" min="0.5" max="2" step="0.1" value="1">
-            <button id="voice-test" class="secondary" type="button">保存并试听</button><button id="settings-voice-stop" class="secondary" type="button" hidden>停止试听</button><p class="settings-note">试听会调用所选语音服务，按该服务规则计费。</p>
+            <button id="voice-test" class="secondary" type="button">保存并试听</button><button id="settings-voice-stop" class="secondary" type="button" hidden>停止试听</button>
           </div>
         </div>
-        <footer class="settings-footer"><p id="settings-status" role="status">保存配置不会自动调用接口。</p><button id="settings-save" type="submit">保存设置</button></footer>
+        <footer class="settings-footer"><p id="settings-status" role="status"></p><button id="settings-save" type="submit">保存设置</button></footer>
       </form>
     </section>
   </main>

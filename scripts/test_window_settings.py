@@ -123,7 +123,9 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             config={'base_url':'https://fixture.invalid/v1/tts' if provider=='fish' else 'https://fixture.invalid/v1',
                     'api_key':'fixture-'+provider,'model':'s2.1-pro-free' if provider=='fish' else 'fixture-tts',
                     'voice':'fixture-voice','speed':1.1}
-            audio=await SpeechClient(provider,config,httpx.MockTransport(handle)).synthesize('你好')
+            speech=SpeechClient(provider,config,httpx.MockTransport(handle))
+            try:audio=await speech.synthesize('你好')
+            finally:await speech.close()
             self.assertTrue(audio.startswith(b'RIFF'));self.assertEqual(len(requests),1)
             body=json.loads(requests[0].content)
             self.assertEqual(requests[0].headers['authorization'],'Bearer fixture-'+provider)
@@ -135,8 +137,96 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(body['input'],'你好');self.assertEqual(body['response_format'],'wav')
             redirects=[]
             def redirect(request):redirects.append(request);return httpx.Response(307,headers={'Location':'https://other.invalid/'})
-            with self.assertRaises(httpx.HTTPStatusError):
-                await SpeechClient(provider,config,httpx.MockTransport(redirect)).synthesize('你好')
+            speech=SpeechClient(provider,config,httpx.MockTransport(redirect))
+            try:
+                with self.assertRaises(httpx.HTTPStatusError):await speech.synthesize('你好')
+            finally:await speech.close()
             self.assertEqual(len(redirects),1)
+
+    async def test_speech_reuses_transport_until_client_closed(self):
+        class Transport(httpx.AsyncBaseTransport):
+            calls=0;closed=0
+            async def handle_async_request(self,request):
+                self.calls+=1
+                return httpx.Response(200,content=wav_fixture())
+            async def aclose(self):self.closed+=1
+        transport=Transport()
+        speech=SpeechClient('openai',{'base_url':'https://fixture.invalid/v1','api_key':'fixture',
+            'model':'fixture','voice':'fixture','speed':1},transport)
+        try:
+            await speech.synthesize('第一句。');await speech.synthesize('第二句。')
+            self.assertEqual((transport.calls,transport.closed),(2,0))
+        finally:await speech.close()
+        self.assertEqual(transport.closed,1)
+
+    async def test_disconnect_cancels_synthesis_and_releases_next_request(self):
+        entered=asyncio.Event();cancelled=asyncio.Event();calls=[]
+        class Speech:
+            async def synthesize(self,text):
+                calls.append(text)
+                if len(calls)==1:
+                    entered.set()
+                    try:await asyncio.Event().wait()
+                    finally:cancelled.set()
+                return wav_fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);config=ConfigStore(root/'settings.json',env={});config.data['voice']['enabled']=True
+            app=create_app(history_directory=root/'history',config=config,speech=Speech())
+            incoming=asyncio.Queue();left=False;sent=[]
+            body=json.dumps({'text':'这段取消。','story_epoch':0}).encode()
+            incoming.put_nowait({'type':'http.request','body':body,'more_body':False})
+            async def receive():
+                nonlocal left
+                if left:return {'type':'http.disconnect'}
+                message=await incoming.get()
+                if message['type']=='http.disconnect':left=True
+                return message
+            async def send(message):sent.append(message)
+            scope={'type':'http','asgi':{'version':'3.0','spec_version':'2.4'},'http_version':'1.1',
+                'method':'POST','scheme':'http','path':'/api/speech','raw_path':b'/api/speech','query_string':b'',
+                'root_path':'','headers':[(b'host',b'testserver'),(b'content-type',b'application/json')],
+                'client':('127.0.0.1',1234),'server':('testserver',80)}
+            request=asyncio.create_task(app(scope,receive,send))
+            try:
+                await asyncio.wait_for(entered.wait(),3)
+                incoming.put_nowait({'type':'http.disconnect'})
+                await asyncio.wait_for(cancelled.wait(),3);await asyncio.wait_for(request,3)
+                self.assertIsNone(app.state.active_speech_task)
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver') as client:
+                    response=await asyncio.wait_for(client.post('/api/speech',json={'text':'新的一句。','story_epoch':0}),3)
+                self.assertEqual(response.status_code,200);self.assertEqual(len(calls),2)
+            finally:
+                if not request.done():request.cancel()
+                await asyncio.gather(request,return_exceptions=True)
+
+    async def test_speech_stale_note_revision_and_provider_status_are_preserved(self):
+        class Failure:
+            calls=0
+            async def synthesize(self,text):
+                self.calls+=1
+                response=httpx.Response(401,request=httpx.Request('POST','https://fixture.invalid'))
+                response.raise_for_status()
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);config=ConfigStore(root/'settings.json',env={});config.data['voice']['enabled']=True
+            speech=Failure();app=create_app(history_directory=root/'history',config=config,speech=speech)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver') as client:
+                stale=await client.post('/api/speech',json={'text':'手记已经变化。','story_epoch':0,'story_note_revision':1})
+                self.assertEqual(stale.status_code,409);self.assertEqual(speech.calls,0)
+                failure=await client.post('/api/speech',json={'text':'验证错误。','story_epoch':0,'story_note_revision':0})
+                self.assertEqual(failure.status_code,502);self.assertIn('未通过验证',failure.json()['detail'])
+                self.assertNotIn('fixture.invalid',failure.text);self.assertEqual(speech.calls,1)
+
+    async def test_saved_settings_and_shutdown_close_previous_speech_client(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);config=ConfigStore(root/'settings.json',env={})
+            with TestClient(create_app(history_directory=root/'history',config=config)) as client:
+                data=editable(config);data['voice']['fish']['api_key']='fixture-voice-key'
+                self.assertEqual(client.post('/api/settings',json=data).status_code,200)
+                first=client.app.state.speech
+                self.assertFalse(first.client.is_closed)
+                self.assertEqual(client.post('/api/settings',json=editable(config)).status_code,200)
+                second=client.app.state.speech
+                self.assertIsNot(first,second);self.assertTrue(first.client.is_closed)
+            self.assertTrue(second.client.is_closed)
 
 if __name__=='__main__':unittest.main()

@@ -46,7 +46,7 @@ uvicorn.Server(uvicorn.Config(app,log_level='error')).run(sockets=[sock])
   const filters=async()=>{if(!await page.locator('#timeline-filters').evaluate(element=>element.open))await page.locator('#timeline-filters>summary').click();};
   const cards=()=>page.locator('#timeline-cards .timeline-card');
   await page.goto(origin,{waitUntil:'networkidle'});await page.waitForFunction(()=>window.yuki?.avatar.ready);await panel();
-  assert.equal(await cards().count(),3);assert.match(await cards().first().innerText(),/人物说辞/);assert.match(await cards().nth(1).innerText(),/不据此推断/);
+  assert.equal(await cards().count(),3);assert.match(await cards().first().innerText(),/人物说辞/);assert.match(await cards().nth(1).innerText(),/选项节点/);
   await page.screenshot({path:path.join(out,'timeline-320.png'),omitBackground:true});
   await cards().first().getByRole('button',{name:'看原文',exact:true}).click();assert.match(await page.locator('#story-evidence-lines').innerText(),/小春.*|可我在那里见过你/s);await panel();
   await cards().first().getByRole('button',{name:'记个想法',exact:true}).click();

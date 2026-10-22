@@ -268,6 +268,35 @@ class CaptureService:
         self.task = asyncio.create_task(self._pump())
         return self.status()
 
+    def reading_target(self,epoch,run_id):
+        view=self.story.view();active=view['active']
+        if view['epoch']!=epoch or (active['id'] if active else None)!=run_id:
+            raise StoryConflict('当前共读已改变，请重新选择游戏。')
+        if active and active['mode']!='galgame':raise ValueError('请切换到游戏共读后再连接游戏。')
+        return active
+
+    async def connect(self,pid,epoch,run_id):
+        self.reading_target(epoch,run_id)
+        if not self.runtime.available():raise ValueError('请先点击“准备取词工具”，完成后再连接游戏。')
+        await self.attach(pid)
+        try:
+            active=self.reading_target(epoch,run_id)
+            if active is None:
+                title=self.process['title'].strip()[:100] or self.process['name'][:100]
+                self.story.create_run(title,'初见共读',epoch,'galgame');self.on_boundary()
+            self.message='游戏已连接。请回到游戏推进一句台词，再核对下方预览。'
+            return {'capture':self.status(),'story':self.story.view()}
+        except Exception:
+            await self.detach();raise
+
+    def begin_recording(self,session,channel,kind,speaker,epoch,run_id):
+        self.reading_target(epoch,run_id)
+        self.require_session(session)
+        if channel not in self.channels:raise ValueError('请先选中与游戏正文一致的台词预览。')
+        if not self.runtime.alive():raise ValueError('游戏连接已断开，请重新连接。')
+        self.select(session,channel,kind,speaker)
+        return self.start_recording(session,epoch,run_id)
+
     async def detach(self):
         self.pause('已断开游戏，已保存的原文仍然保留。')
         if self.task:

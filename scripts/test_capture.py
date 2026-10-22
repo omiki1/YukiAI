@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -112,6 +113,16 @@ class CaptureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.events()[0]['text'],'这句正文应该完整保留。')
         self.assertNotIn('hook message',self.events()[0]['raw_text'])
         self.assertEqual(len(self.capture.channels),2)
+
+    async def test_unwoken_background_dialogue_can_be_located_from_later_screen(self):
+        self.start()
+        for number in range(1,61):self.emit(f'旁白：钟声响过第{number}次，走廊里依然没有人。',number)
+        target='美咲：我把那把蓝色雨伞放在旧校舍的门口了。'
+        self.emit(target,62)
+        state=self.store.view();result=self.store.locate_screen(target,state['epoch'],state['active']['id'])
+        self.assertEqual(result['status'],'matched');self.assertEqual(result['candidates'][0]['position'],61)
+        self.assertEqual(state['active']['position'],61)
+        self.assertTrue(all(event['source'].startswith('textractor:') for event in state['active']['events']))
 
     async def test_hundred_lines_skip_menus_and_confirm_rewind(self):
         self.assertTrue(is_interface_line('【保存】'))
@@ -224,6 +235,71 @@ class CaptureTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CaptureAPITests(unittest.TestCase):
+    def test_connect_button_creates_game_reading_and_never_records_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime=CaptureFixtureRuntime();app=create_app(history_directory=directory,config=ConfigStore(Path(directory)/'config.json',env={}),allow_cloud=False,capture_runtime=runtime)
+            with TestClient(app) as client:
+                self.assertFalse(client.get('/api/capture').json()['connected']);self.assertEqual(runtime.commands,[])
+                self.assertEqual(client.post('/api/capture/connect',json={'pid':999,'epoch':0,'run_id':None}).status_code,400)
+                self.assertEqual(client.get('/api/story').json()['runs'],[])
+                result=client.post('/api/capture/connect',json={'pid':4660,'epoch':0,'run_id':None})
+                self.assertEqual(result.status_code,200);data=result.json()
+                self.assertTrue(data['capture']['connected']);self.assertFalse(data['capture']['recording'])
+                self.assertEqual(data['story']['active']['mode'],'galgame');self.assertEqual(data['story']['active']['position'],0)
+                self.assertEqual(runtime.commands,['attach -P4660'])
+            self.assertFalse(runtime.running)
+
+    def test_stale_reading_and_novel_connect_do_not_inject(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime=CaptureFixtureRuntime();app=create_app(history_directory=directory,config=ConfigStore(Path(directory)/'config.json',env={}),allow_cloud=False,capture_runtime=runtime)
+            with TestClient(app) as client:
+                self.assertEqual(client.post('/api/capture/connect',json={'pid':4660,'epoch':1}).status_code,409)
+                state=client.post('/api/story/runs',json={'title':'自编小说','name':'第一章','mode':'novel','epoch':0}).json()
+                self.assertEqual(client.post('/api/capture/connect',json={'pid':4660,'epoch':state['epoch'],'run_id':state['active']['id']}).status_code,400)
+                self.assertEqual(runtime.commands,[])
+
+    def test_one_begin_button_checks_source_session_and_confirmation_before_recording(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime=CaptureFixtureRuntime();app=create_app(history_directory=directory,config=ConfigStore(Path(directory)/'config.json',env={}),allow_cloud=False,capture_runtime=runtime)
+            with TestClient(app) as client:
+                data=client.post('/api/capture/connect',json={'pid':4660,'epoch':0}).json();capture=app.state.capture
+                def preview():
+                    stamp=time.monotonic();capture.line('[2:1234:123ABC:0:0:TextOutW:HQ@123ABC] 美咲：这只是确认来源的预览。',stamp);capture.tick(stamp+.3)
+                client.portal.call(preview)
+                thread=client.get('/api/capture').json()['threads'][0]['id']
+                body={'session_id':data['capture']['session_id'],'epoch':data['story']['epoch'],'run_id':data['story']['active']['id'],
+                      'thread_id':thread,'kind':'auto','speaker':'','confirmed_read':True}
+                for changed,status in (({'confirmed_read':False},422),({'session_id':'stale-session'},409),({'thread_id':'missing-source'},400),({'epoch':0},409)):
+                    self.assertEqual(client.post('/api/capture/begin',json={**body,**changed}).status_code,status)
+                    self.assertFalse(client.get('/api/capture').json()['recording'])
+                result=client.post('/api/capture/begin',json=body)
+                self.assertEqual(result.status_code,200);self.assertTrue(result.json()['recording']);self.assertEqual(result.json()['selected_thread'],thread)
+                self.assertEqual(client.get('/api/story').json()['active']['position'],0)
+
+    def test_install_requires_click_checks_readiness_and_never_injects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime=CaptureFixtureRuntime();ready=[False];runtime.available=lambda:ready[0]
+            app=create_app(history_directory=directory,config=ConfigStore(Path(directory)/'config.json',env={}),capture_runtime=runtime)
+            with patch('scripts.install_textractor.install',side_effect=lambda:ready.__setitem__(0,True)) as install,TestClient(app) as client:
+                self.assertFalse(client.get('/api/capture').json()['available']);install.assert_not_called()
+                self.assertEqual(client.post('/api/capture/connect',json={'pid':4660,'epoch':0}).status_code,400);self.assertEqual(runtime.commands,[])
+                self.assertTrue(client.post('/api/capture/install',json={}).json()['available']);install.assert_called_once()
+                self.assertTrue(client.post('/api/capture/install',json={}).json()['available']);install.assert_called_once()
+                self.assertEqual(runtime.commands,[])
+                self.assertEqual(client.post('/api/capture/connect',json={'pid':4660,'epoch':0}).status_code,200)
+                self.assertEqual(client.post('/api/capture/install',json={}).status_code,409)
+
+    def test_install_failure_is_redacted_and_preview_cannot_download(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime=CaptureFixtureRuntime();runtime.available=lambda:False
+            app=create_app(history_directory=directory,config=ConfigStore(Path(directory)/'config.json',env={}),capture_runtime=runtime)
+            with patch('scripts.install_textractor.install',side_effect=ValueError('fixture-private-path')),TestClient(app) as client:
+                response=client.post('/api/capture/install',json={});self.assertEqual(response.status_code,502)
+                self.assertNotIn('fixture-private-path',response.text);self.assertFalse(client.get('/api/capture').json()['available'])
+            app=create_app(history_directory=directory,config=ConfigStore(Path(directory)/'config.json',env={}),allow_cloud=False,capture_runtime=runtime)
+            with patch('scripts.install_textractor.install') as install,TestClient(app) as client:
+                self.assertEqual(client.post('/api/capture/install',json={}).status_code,403);install.assert_not_called()
+
     def test_session_validation_local_origin_and_lifespan_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime=CaptureFixtureRuntime()

@@ -7,7 +7,7 @@ export class MemoryPanel{
  constructor(private context:()=>any,private apply:(state:any)=>void,private block:(busy:boolean)=>void,
   private historyChanged:(uid:string,deleted:boolean)=>Promise<void>){
   $('memory-refresh').onclick=()=>this.work(()=>this.load());
-  $('memory-backup').onclick=()=>this.work(async()=>{await api('memory/backup',{epoch:this.context().epoch});await this.load();this.message('已在本机备份全部共读和普通聊天，不包含接口配置、密钥或模型。');});
+  $('memory-backup').onclick=()=>this.work(async()=>{await api('memory/backup',{epoch:this.context().epoch});await this.load();this.message('全部记忆已备份。');});
   $('memory-compact').onclick=()=>this.work(async()=>{const result=await api('memory/compact',{epoch:this.context().epoch});this.apply(result.story);this.data=result.memory;this.render();this.message('已整理数据库空闲空间。取词已暂停，原文和讨论保留。');});
   $('memory-cancel').onclick=()=>this.cancel();
   $('memory-agree').onchange=()=>this.controls();
@@ -23,7 +23,7 @@ export class MemoryPanel{
  private message(text:string,error=false){$('memory-status').textContent=text;$('memory-status').classList.toggle('error',error);}
  private cancel(){this.plan=null;this.planEpoch=null;$('memory-preview').hidden=true;$('memory-agree').checked=false;this.controls();}
  private async work(task:()=>Promise<void>){if(this.blocked)return;this.block(true);try{await task();}catch(error){this.cancel();this.message(error.message,true);}finally{this.block(false);}}
- private async load(){const generation=++this.generation;const data=await api('memory');if(generation!==this.generation)return;this.data=data;this.cancel();this.render();this.message('记录只保存在本机。新聊会保留旧讨论；彻底清理请先预览范围。');}
+ private async load(){const generation=++this.generation;const data=await api('memory');if(generation!==this.generation)return;this.data=data;this.cancel();this.render();this.message('');}
  private button(text:string,action:()=>void,unavailable=false){const button=document.createElement('button');button.type='button';button.textContent=text;button.dataset.unavailable=String(unavailable);button.disabled=this.blocked||unavailable;button.onclick=action;return button;}
  private row(root:HTMLElement,title:string,note:string,buttons:HTMLButtonElement[]){const item=document.createElement('article');item.className='memory-item';const label=document.createElement('h3');label.textContent=title;const description=document.createElement('p');description.textContent=note;const actions=document.createElement('div');actions.className='memory-actions';actions.append(...buttons);item.append(label,description,actions);root.append(item);return item;}
  private render(){
@@ -44,6 +44,6 @@ export class MemoryPanel{
   this.controls();
  }
  private async preview(action:string,id:string){await this.work(async()=>{this.cancel();this.plan=await api('memory/plan',{action,id,epoch:this.context().epoch});this.planEpoch=this.context().epoch;$('memory-description').textContent=this.plan.description;$('memory-confirm').textContent=action==='restore_backup'?'确认恢复副本':'确认清理';$('memory-preview').hidden=false;$('memory-preview').scrollIntoView({block:'nearest'});$('memory-agree').focus();this.message('请核对操作范围。备份独立保留，可在下方单独删除。');});}
- private async confirm(){if(!this.plan||!$('memory-agree').checked)return;const token=this.plan.token;await this.work(async()=>{const result=await api('memory/confirm',{token,confirmed:true});this.cancel();if(result.result.action==='delete_history')await this.historyChanged(result.result.id,true);this.apply(result.story);await this.load();this.message(result.result.action==='restore_backup'?'已恢复为独立副本，原有记录保留。其他普通聊天副本可在列表里继续聊。':'已按预览范围清理。已有备份仍保留，可单独删除。');});}
- private async openHistory(uid:string){await this.work(async()=>{const result=await api('memory/history/open',{id:uid,epoch:this.context().epoch});await this.historyChanged(uid,false);this.apply(result.story);this.cancel();this.message('已打开这篇普通聊天，关闭剧情记录后可以继续。');});}
+ private async confirm(){if(!this.plan||!$('memory-agree').checked)return;const token=this.plan.token;await this.work(async()=>{const result=await api('memory/confirm',{token,confirmed:true});this.cancel();if(result.result.action==='delete_history')await this.historyChanged(result.result.id,true);this.apply(result.story);await this.load();this.message(result.result.action==='restore_backup'?'已恢复为独立副本。':'已清理，已有备份保留。');});}
+ private async openHistory(uid:string){await this.work(async()=>{const result=await api('memory/history/open',{id:uid,epoch:this.context().epoch});await this.historyChanged(uid,false);this.apply(result.story);this.cancel();this.message('已切换聊天。');});}
 }

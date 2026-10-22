@@ -1,5 +1,6 @@
 """Standalone loopback API, local settings and optional speech."""
 import asyncio
+import anyio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -30,6 +31,7 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
         yield
         await app.state.capture.detach()
         if isinstance(app.state.chat,TextChat):await app.state.chat.client.close()
+        if isinstance(app.state.speech,SpeechClient):await app.state.speech.close()
 
     app=FastAPI(title='Yuki 小窗',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=['127.0.0.1','localhost','testserver'])
@@ -109,11 +111,12 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     async def save_settings(data:Configuration):
         if lock.locked() or speech_lock.locked():raise HTTPException(409,'请等当前回复或语音完成后再保存。')
         async with lock:
-            previous=app.state.chat
+            previous=app.state.chat;previous_speech=app.state.speech
             try:result=config.save(data)
             except ValueError as exc:raise HTTPException(400,str(exc)) from None
             configure_clients()
             if isinstance(previous,TextChat):await previous.client.close()
+            if isinstance(previous_speech,SpeechClient):await previous_speech.close()
             return result
 
     def provider_error(exc,kind):
@@ -134,37 +137,58 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
             except Exception as exc:raise provider_error(exc,'聊天') from None
         return {'ok':True}
 
-    async def synthesize(text,epoch=None):
+    async def synthesize(text,request,snapshot=None):
         if not allow_cloud:raise HTTPException(403,'预览模式不调用外部接口，请正常启动后试听。')
         if not app.state.speech:raise HTTPException(400,'请先保存完整的语音接口配置。')
+        await request.body()
         if speech_lock.locked():raise HTTPException(409,'上一段语音还在准备中。')
         async with speech_lock:
+            if snapshot is not None and not story.matches(snapshot):
+                raise HTTPException(409,'阅读进度或手记已改变，这段语音已停止。')
+            # The body has been parsed. Waiting on receive now observes a real
+            # disconnect without polling, so Stop also cancels upstream work.
             task=asyncio.create_task(app.state.speech.synthesize(text))
-            if epoch is not None:app.state.active_speech_task=task
+            client_left=False
+            async def disconnected():
+                nonlocal client_left
+                while (await request.receive())['type']!='http.disconnect':pass
+                client_left=True;task.cancel()
+            if snapshot is not None:app.state.active_speech_task=task
             try:
-                audio=await task
-                if epoch is not None and story.epoch()!=epoch:raise StoryConflict('阅读进度已改变，这段语音已停止。')
-            except asyncio.CancelledError:raise HTTPException(409,'阅读进度已改变，这段语音已停止。') from None
+                async with anyio.create_task_group() as watchers:
+                    watchers.start_soon(disconnected)
+                    try:await asyncio.wait((task,))
+                    finally:watchers.cancel_scope.cancel()
+                if client_left:raise HTTPException(499,'朗读已停止。')
+                audio=task.result()
+                if snapshot is not None and not story.matches(snapshot):raise StoryConflict('阅读进度或手记已改变，这段语音已停止。')
+            except asyncio.CancelledError:raise HTTPException(499 if client_left else 409,'朗读已停止。' if client_left else '阅读进度已改变，这段语音已停止。') from None
             except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
+            except HTTPException:raise
             except Exception as exc:raise provider_error(exc,'语音') from None
             finally:
+                if not task.done():task.cancel()
+                await asyncio.gather(task,return_exceptions=True)
                 if app.state.active_speech_task is task:app.state.active_speech_task=None
         return Response(audio,media_type='audio/wav')
 
     @app.post('/api/settings/test-voice')
-    async def test_voice():return await synthesize('你好，我是 Yuki。接下来的剧情，我们一起看吧。')
+    async def test_voice(request:Request):return await synthesize('你好，我是 Yuki。接下来的剧情，我们一起看吧。',request)
 
     class SpeechInput(BaseModel):
         text:str=Field(min_length=1,max_length=1200)
         story_epoch:int|None=Field(default=None,ge=0)
+        story_note_revision:int|None=Field(default=None,ge=0)
 
     @app.post('/api/speech')
-    async def speak(data:SpeechInput):
+    async def speak(data:SpeechInput,request:Request):
         if not config.data['voice']['enabled']:raise HTTPException(403,'自动朗读尚未开启。')
         if not data.text.strip():raise HTTPException(422,'没有可以朗读的文字。')
         try:snapshot=story.snapshot('',data.story_epoch)
         except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
-        return await synthesize(data.text.strip(),snapshot.epoch)
+        if data.story_note_revision is not None and data.story_note_revision!=snapshot.note_revision:
+            raise HTTPException(409,'共读手记已改变，这段语音已停止。')
+        return await synthesize(data.text.strip(),request,snapshot)
 
     class ReadingEdit(BaseModel):
         epoch:int=Field(ge=0)
@@ -187,6 +211,16 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
 
     class NamedReading(ReadingEdit):
         name:str=Field(default='',max_length=60)
+
+    class ScreenReading(ReadingEdit):
+        run_id:str=Field(min_length=1,max_length=100)
+        text:str=Field(min_length=1,max_length=6000)
+
+    class ConfirmScreen(ScreenReading):
+        note_revision:int=Field(ge=0)
+        request_id:str=Field(min_length=8,max_length=100)
+        confirmed_read:Literal[True]
+        match_position:int|None=Field(default=None,ge=1)
 
     class RestoreReading(ReadingEdit):
         bookmark_id:str=Field(min_length=1,max_length=100)
@@ -213,6 +247,10 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     class CaptureAttach(BaseModel):
         pid:int=Field(gt=0,le=4294967295)
 
+    class CaptureConnect(CaptureAttach):
+        epoch:int=Field(ge=0)
+        run_id:str|None=Field(default=None,min_length=1,max_length=100)
+
     class CaptureSelect(CaptureSession):
         thread_id:str=Field(min_length=1,max_length=160)
         kind:Literal['auto','dialogue','narration','choice']='auto'
@@ -225,6 +263,11 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
 
     class CaptureHook(CaptureSession):
         code:str=Field(min_length=2,max_length=440)
+
+    class CaptureBegin(CaptureSelect):
+        epoch:int=Field(ge=0)
+        run_id:str=Field(min_length=1,max_length=100)
+        confirmed_read:Literal[True]
 
     def capture_call(function,*args):
         try:return function(*args)
@@ -242,6 +285,32 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
         async with capture_lock:
             try:return await capture.attach(data.pid)
             except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+    @app.post('/api/capture/install')
+    async def capture_install():
+        if not allow_cloud:raise HTTPException(403,'预览模式不下载安装；请正常启动桌面版后准备取词工具。')
+        if capture.process:raise HTTPException(409,'请先断开游戏，再准备取词工具。')
+        if capture_lock.locked():raise HTTPException(409,'取词工具正在准备或连接，请稍等。')
+        async with capture_lock:
+            if not capture.runtime.available():
+                from .install_textractor import install
+                try:await asyncio.to_thread(install)
+                except ValueError:raise HTTPException(502,'官方取词工具校验未通过，未安装，请重新下载。') from None
+                except Exception:raise HTTPException(502,'取词工具未能下载或写入，请检查网络和目录权限后重试。') from None
+                if not capture.runtime.available():raise HTTPException(502,'取词工具尚未准备完整，请重新下载。')
+            return capture.status()
+
+    @app.post('/api/capture/connect')
+    async def capture_connect(data:CaptureConnect):
+        if capture_lock.locked():raise HTTPException(409,'正在准备或连接游戏，请稍等。')
+        async with capture_lock:
+            try:return await capture.connect(data.pid,data.epoch,data.run_id)
+            except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
+            except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+    @app.post('/api/capture/begin')
+    async def capture_begin(data:CaptureBegin):
+        return capture_call(capture.begin_recording,data.session_id,data.thread_id,data.kind,data.speaker,data.epoch,data.run_id)
 
     @app.post('/api/capture/select')
     async def capture_select(data:CaptureSelect):
@@ -278,6 +347,27 @@ def create_app(chat=None,history_directory=None,*,config=None,allow_cloud=True,s
     @app.post('/api/story/import')
     async def import_reading(data:ImportReading):
         return edit_story(story.ingest,data.text,data.kind,data.speaker,data.request_id,data.epoch,data.run_id)
+
+    @app.post('/api/story/screen/locate')
+    async def locate_screen(data:ScreenReading):
+        try:return story.locate_screen(data.text,data.epoch,data.run_id)
+        except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
+        except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+    @app.post('/api/story/screen')
+    async def confirm_screen(data:ConfirmScreen):
+        try:
+            result=story.locate_screen(data.text,data.epoch,data.run_id)
+            if result['note_revision']!=data.note_revision:raise StoryConflict('共读记忆已改变，请重新定位当前画面。')
+            if data.match_position is not None:
+                if not any(row['position']==data.match_position for row in result['candidates']):
+                    raise StoryConflict('匹配位置已改变，请重新定位当前画面。')
+                if data.match_position==result['position']:return story.view()
+                return edit_story(story.progress,data.match_position,data.epoch)
+            if result['candidates']:raise StoryConflict('找到对应原文，请先选择匹配位置，避免重复收录。')
+            return edit_story(story.ingest_screen,data.text,data.request_id,data.epoch,data.run_id)
+        except StoryConflict as exc:raise HTTPException(409,str(exc)) from None
+        except ValueError as exc:raise HTTPException(400,str(exc)) from None
 
     @app.post('/api/story/bookmarks')
     async def bookmark_reading(data:NamedReading):return edit_story(story.bookmark,data.name,data.epoch)

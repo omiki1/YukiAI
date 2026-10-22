@@ -28,7 +28,7 @@ export class SettingsPanel{
   $('avatar-scale').value=String(Math.round(this.data.avatar_scale*100));this.preview();
   for(const [id,key] of [['llm-url','base_url'],['llm-model','model']])$(id).value=this.draft.llm[key];
   this.fillKey('llm',this.draft.llm);$('llm-json').checked=this.draft.llm.json_mode;$('voice-enabled').checked=this.draft.voice.enabled;
-  $('voice-provider').value=this.provider;this.fillVoice();$('settings').hidden=false;$('settings-toggle').setAttribute('aria-expanded','true');this.message('保存配置不会自动调用接口。');$('settings-close').focus();
+  $('voice-provider').value=this.provider;this.fillVoice();$('settings').hidden=false;$('settings-toggle').setAttribute('aria-expanded','true');this.message('');$('settings-close').focus();
   if(tab)document.querySelector<HTMLButtonElement>('[data-tab="'+tab+'"]').click();
  }
  close(){if(this.busy)return;this.avatar.setScale(this.data?.avatar_scale??.85);$('llm-key').value='';$('voice-key').value='';this.draft=null;$('settings').hidden=true;$('settings-toggle').setAttribute('aria-expanded','false');$('settings-toggle').focus();}
@@ -51,11 +51,11 @@ export class SettingsPanel{
  }
  private setBusy(value:boolean){this.busy=value;$('story-toggle').disabled=value;$('settings').querySelectorAll<HTMLInputElement>('input,select,button').forEach(element=>{if(element.id!=='settings-voice-stop')element.disabled=value;});}
  private async persist(){const data=await api('settings',this.payload());this.data=data;this.draft=JSON.parse(JSON.stringify(data));this.fillKey('llm',data.llm);this.fillVoice();this.avatar.setScale(data.avatar_scale);this.saved(data);return data;}
- async save(){if(this.busy)return;this.setBusy(true);this.message('正在保存……');try{await this.persist();this.message('已保存在本机，配置已生效。');}finally{this.setBusy(false);}}
+ async save(){if(this.busy)return;this.setBusy(true);this.message('正在保存……');try{await this.persist();this.message('已保存在本机。');}finally{this.setBusy(false);}}
  private async test(kind:'llm'|'voice'){if(this.busy)return;if(!($('settings-form') as unknown as HTMLFormElement).reportValidity())return;
   this.setBusy(true);this.message('正在保存并'+(kind==='llm'?'测试聊天……':'准备试听……'));
-  try{await this.persist();if(kind==='llm'){await api('settings/test-llm',{});this.message('聊天连接成功，可以一起聊剧情了。');}
-   else{await this.speech.play('settings/test-voice');this.message('已开始试听，可点击“停止试听”停止。');}}
+  try{await this.persist();if(kind==='llm'){await api('settings/test-llm',{});this.message('聊天连接成功。');}
+   else{await this.speech.play('settings/test-voice');this.message('试听中……');}}
   catch(error){this.message(error.message,true);}finally{this.setBusy(false);}
  }
  private message(text:string,error=false){$('settings-status').textContent=text;$('settings-status').classList.toggle('error',error);}

@@ -1,4 +1,5 @@
 import './style.css';
+import './game.css';
 import './theme';
 import './compat';
 import {Avatar} from './avatar';
@@ -19,7 +20,7 @@ let voiceEnabled=false,previewMode=false;
 let classicTurns:Turn[]=[],conversationGeneration=0,readingInitialized=false,currentRequest:AbortController|null=null,currentEvidence:StoryEvidence[]=[],replyKind='',progressNote='';
 const speech=new SpeechPlayer(busy=>{$('voice-stop').hidden=!busy;$('settings-voice-stop').hidden=!busy;});
 const settings=new SettingsPanel(avatar,speech,data=>{voiceEnabled=data.voice.enabled&&!previewMode;if(!voiceEnabled)speech.stop();});
-const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');},changeHistory,text=>{document.querySelector<HTMLElement>('.dialogue').hidden=false;$('dialogue-restore').hidden=true;setComposer(true,true);$<HTMLTextAreaElement>('message').value=text;hint('已准备讨论草稿，发送后再和 Yuki 聊。');});
+const story=new StoryPanel(syncReading,()=>{if(!$('settings').hidden)settings.close();closeMenu();setComposer(false);$('memories').hidden=true;$('history-toggle').setAttribute('aria-expanded','false');},changeHistory,text=>{document.querySelector<HTMLElement>('.dialogue').hidden=false;$('dialogue-restore').hidden=true;setComposer(true,true);$<HTMLTextAreaElement>('message').value=text;hint('问题已填入。');});
 const toolbar=new ModelToolbar(avatar);
 const guide=new QuickStart(()=>settings.open('llm'),()=>story.beginReading(true),async()=>{
  if(loadTask)await loadTask;
@@ -46,11 +47,11 @@ function syncReading(state:any,boundary:boolean){
  else if(!pending&&!typing&&active?.progress?.detail&&active.progress.verdict!=='steady'){progressNote=active.progress.detail;hint(replyHint());}
  readingInitialized=true;
 }
-function readingHint(active:any){const base=active?'共读《'+active.title+'》 · 已读 '+active.position+' 句':'一起看剧情，慢慢聊 · 默认不剧透';return active?.progress?.detail&&active.progress.verdict!=='steady'?base+' '+active.progress.detail:base;}
+function readingHint(active:any){return active?.progress?.detail&&active.progress.verdict!=='steady'?active.progress.detail:'';}
 function hint(text:string,error=false){$('hint').textContent=text;$('hint').title=text;$('hint').classList.toggle('error',error);$('hint').classList.toggle('busy',pending&&!error);}
 function stopTyping(){if(typing)clearTimeout(typing);typing=null;}
 function settle(){clearTimeout(relax);relax=setTimeout(()=>avatar.setExpression('neutral'),2800);}
-function replyHint(){const novel=story.active?.mode==='novel';const base=replyKind==='uncertain'?'这句我没把握，只按已读到的说。':replyKind==='analysis'?(novel?'按你读到的这段说的。':'按你这条路线里读到的剧情说的。'):'可以继续和我说。';return progressNote?base+' '+progressNote:base;}
+function replyHint(){return [replyKind==='uncertain'?'没把握':'',progressNote].filter(Boolean).join(' · ');}
 function reveal(){stopTyping();$('reply').textContent=fullText;measureReply();hint(replyHint());settle();}
 function write(text:string,emotion='neutral',kind=''){
  stopTyping();clearTimeout(relax);resetBubble();replyKind=kind;fullText=text;$('reply').textContent='';avatar.setExpression(emotion);
@@ -62,7 +63,7 @@ function write(text:string,emotion='neutral',kind=''){
 function memories(){const root=$('history-lines');root.replaceChildren();if(!turns.length){const p=document.createElement('p');p.className='memory-empty';p.textContent='这一篇，还没有写下对话。';root.append(p);}
  for(const t of turns){const div=document.createElement('div');div.className='memory '+(t.role==='human'?'user':'');const name=document.createElement('strong');name.textContent=t.role==='human'?'你':'Yuki';div.append(name,document.createTextNode(t.content));if(t.answer_type==='uncertain'){const note=document.createElement('span');note.className='memory-note';note.textContent='没把握';div.append(note);}if(t.evidence?.length){const button=document.createElement('button');button.className='memory-evidence';button.textContent='查看原文依据';button.onclick=()=>story.showEvidence(t.evidence);div.append(button);}root.append(div);}root.scrollTop=root.scrollHeight;
 }
-async function newSession(force=false){if(pending&&!force)return;if(story.active){await story.newChat();return;}speech.stop();const data=await api('sessions',{});session=data.session_id;turns=[];classicTurns=turns;localStorage.setItem('yuki.session',session);stopTyping();clearTimeout(relax);avatar.setExpression('neutral');resetBubble();$('reply').textContent=greeting;fullText=greeting;setEvidence();hint('一起看剧情，慢慢聊 · 默认不剧透');memories();requestAnimationFrame(measureReply);}
+async function newSession(force=false){if(pending&&!force)return;if(story.active){await story.newChat();return;}speech.stop();const data=await api('sessions',{});session=data.session_id;turns=[];classicTurns=turns;localStorage.setItem('yuki.session',session);stopTyping();clearTimeout(relax);avatar.setExpression('neutral');resetBubble();$('reply').textContent=greeting;fullText=greeting;setEvidence();hint('');memories();requestAnimationFrame(measureReply);}
 async function changeHistory(uid:string,deleted:boolean){
  if(deleted&&uid!==session)return;
  conversationGeneration++;currentRequest?.abort();currentRequest=null;speech.stop();stopTyping();clearTimeout(relax);pending=false;
@@ -82,7 +83,7 @@ function refreshClassic(epoch:number){
 async function initialize(){
  const status=await api('status');previewMode=status.preview;await settings.load();session=localStorage.getItem('yuki.session')||'';
  if(session){try{const data=await api('sessions/'+encodeURIComponent(session));turns=data.messages;const last=[...turns].reverse().find(x=>x.role==='ai');if(last){$('reply').textContent=last.content;fullText=last.content;}}catch{session='';}}
- if(!session)await newSession(true);classicTurns=turns;await story.load();if(!status.chat_enabled)hint(status.preview?'预览中，外部接口不会调用。':'鼠标移到 Yuki 上方，打开设置接上聊天服务吧。');
+ if(!session)await newSession(true);classicTurns=turns;await story.load();if(!status.chat_enabled)hint(status.preview?'预览模式':'请配置聊天接口。');
  if(!status.chat_enabled&&!story.state.runs.length&&!localStorage.getItem('yuki.guide.dismissed'))await guide.open();
 }
 $('line').addEventListener('click',()=>{if(typing)reveal();else expandReply();});$('line').addEventListener('keydown',e=>{if((e as KeyboardEvent).key==='Enter'){e.preventDefault();if(typing)reveal();else expandReply();}});
@@ -111,13 +112,14 @@ $('composer').addEventListener('submit',async event=>{
   progressNote=(result.progress_verdict==='looking_back'||result.progress_verdict==='rewind')?(result.progress_detail||''):'';
   turns.push({role:'human',content:text,note_revision:result.story_note_revision},{role:'ai',content:result.text,emotion:result.emotion,evidence:result.evidence,answer_type:result.answer_type,note_revision:result.story_note_revision});if(input.value.trim()===text){input.value='';setComposer(false);}setEvidence(result.evidence);write(result.text,result.emotion,result.answer_type||'');memories();
   if(!$('dialogue-restore').hidden)$('dialogue-restore').textContent='◇ Yuki · 有新回复';
-  if(voiceEnabled){if(result.text.length<=1200)speech.play('speech',{text:result.text,story_epoch:epoch}).catch(e=>{if(generation===conversationGeneration)hint(e.message,true);});else hint('这段回复较长，保留文字阅读。');}
+  if(voiceEnabled){if(result.text.length<=1200)speech.speak(result.text,{story_epoch:epoch,story_note_revision:result.story_note_revision}).catch(e=>{if(generation===conversationGeneration)hint(e.message,true);});else hint('这段回复较长，保留文字阅读。');}
  }catch(e){if(generation===conversationGeneration&&e.name!=='AbortError'){hint(e.message,true);if(!document.querySelector<HTMLElement>('.dialogue').hidden&&$('story-panel').hidden&&$('settings').hidden)setComposer(true);story.load().catch(()=>{});}}
  finally{if(generation===conversationGeneration){pending=false;currentRequest=null;$('hint').classList.remove('busy');$<HTMLButtonElement>('send').disabled=false;$<HTMLButtonElement>('new-chat').disabled=false;}}
 });
 $('message').addEventListener('keydown',(e:KeyboardEvent)=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('composer').dispatchEvent(new Event('submit',{cancelable:true}));}});
 $('minimize').onclick=()=>host?.minimize();$('close').onclick=()=>host?.closeWindow();document.querySelector('.drag-area').addEventListener('pointerdown',(e:PointerEvent)=>{if(e.button===0)host?.startDrag();});
-if(window.qt){const script=document.createElement('script');script.src='qrc:///qtwebchannel/qwebchannel.js';script.onload=()=>new window.QWebChannel(window.qt.webChannelTransport,channel=>{host=channel.objects.windowHost;});document.head.append(script);}
+if(window.qt){const script=document.createElement('script');script.src='qrc:///qtwebchannel/qwebchannel.js';script.onload=()=>new window.QWebChannel(window.qt.webChannelTransport,channel=>{host=channel.objects.windowHost;story.bindHost(host);});document.head.append(script);}
+window.addEventListener('yuki-wake',()=>{document.querySelector<HTMLElement>('.dialogue').hidden=false;$('dialogue-restore').hidden=true;setComposer(true,true);});
 window.yuki={avatar,snapshot:()=>avatar.snapshot(),get pending(){return pending;},get typing(){return Boolean(typing);}};
 avatar.init().then(()=>{$('model-status').hidden=true;}).catch(e=>{$('model-status').textContent=e.message;toolbar.modelUnavailable();});
 loadTask=initialize().catch(e=>hint(e.message,true));

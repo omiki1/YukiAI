@@ -936,6 +936,17 @@ class StoryStore(CharacterStoreMixin):
         events = self.parse(text, kind, speaker)
         return self._ingest(events, request_id, expected, run_id, 'manual')
 
+    def locate_screen(self,text,expected,run_id):
+        from .yuki_locator import locate_dialogue
+        with self.connection() as db:
+            self._check(db,expected);run=self._run(db)
+            if run['id']!=run_id or run['mode']!='galgame':raise StoryConflict('请回到对应的 Galgame 共读再定位。')
+            result=locate_dialogue(text,self._events(db,run))
+            return {**result,'epoch':expected,'run_id':run_id,'position':run['position'],'note_revision':run['note_generation']}
+
+    def ingest_screen(self,text,request_id,expected,run_id):
+        return self._ingest(self.parse(text,'auto',''),request_id,expected,run_id,'screen-ocr')
+
     def ingest_capture(self, text, raw_text, kind, speaker, request_id, expected, run_id, source):
         if not text or len(text) > 2000 or len(raw_text) > 8000:
             raise ValueError('取词正文长度不正确。')

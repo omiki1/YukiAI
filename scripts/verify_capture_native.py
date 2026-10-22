@@ -34,7 +34,7 @@ def fixture():
             current[1]=False
         current[0]=None
     threading.Thread(target=read,daemon=True).start()
-    print('READY',flush=True)
+    print('READY '+str(os.getpid()),flush=True)
     try:
         while current[0] is not None:
             text=current[0]
@@ -64,7 +64,8 @@ async def verify():
         capture=None
         try:
             ready=await asyncio.wait_for(asyncio.to_thread(process.stdout.readline),10)
-            assert ready.strip()=='READY','Owned GDI fixture did not start'
+            assert ready.startswith('READY '),'Owned GDI fixture did not start'
+            fixture_pid=int(ready.split()[1])  # Windows venv launchers may spawn a child PID.
             store=StoryStore(Path(temporary)/'story.sqlite3')
             store.create_run('自编取词样例','真实内核验证',0)
             capture=CaptureService(store,TextractorRuntime())
@@ -74,7 +75,8 @@ async def verify():
                 lines=drain();native_lines.extend(lines)
                 return lines
             capture.runtime.drain=traced_drain
-            await capture.attach(process.pid)
+            state=store.view()
+            await capture.connect(fixture_pid,state['epoch'],state['active']['id'])
             async def show(text):
                 process.stdin.write(json.dumps({'text':text},ensure_ascii=False)+'\n');process.stdin.flush()
             async def until(predicate,timeout=12):
@@ -92,9 +94,8 @@ async def verify():
             await until(lambda:any(row['name']=='DrawTextW' for row in capture.channels.values()))
             channel=next(row['id'] for row in capture.channels.values() if row['name']=='DrawTextW')
             assert store.view()['active']['position']==0,'Preview wrote to story memory'
-            capture.select(capture.session,channel)
             state=store.view()
-            capture.start_recording(capture.session,state['epoch'],state['active']['id'])
+            capture.begin_recording(capture.session,channel,'auto','',state['epoch'],state['active']['id'])
             await show('美咲：雨停了，我们一起去图书室吧。')
             await until(lambda:store.view()['active']['position']>=1)
             view=store.view();event=view['active']['events'][-1]

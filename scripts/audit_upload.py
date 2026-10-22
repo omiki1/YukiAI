@@ -15,6 +15,11 @@ SCRIPT_FILES.update({'scripts/yuki_memory.py','scripts/test_memory_management.py
 SCRIPT_FILES.update({'scripts/test_continuity.py','scripts/verify_continuity.cjs'})
 SCRIPT_FILES.update({'scripts/test_timeline.py','scripts/verify_timeline.cjs'})
 SCRIPT_FILES.add('scripts/verify_themes.cjs')
+SCRIPT_FILES.add('scripts/verify_speech_queue.cjs')
+SCRIPT_FILES.add('scripts/verify_speech_latency.cjs')
+SCRIPT_FILES.update({'scripts/yuki_screen.py','scripts/yuki_game_reader.py','scripts/yuki_locator.py',
+                     'scripts/test_game_reading.py','scripts/verify_game_reading.cjs','scripts/verify_local_ocr.py'})
+SCRIPT_FILES.add('scripts/verify_capture_setup.cjs')
 SCRIPT_FILES.update({'scripts/yuki_characters.py','scripts/test_characters.py','scripts/verify_characters.cjs'})
 SCRIPT_FILES.update({'scripts/yuki_paths.py','scripts/build_alpha.py','scripts/test_delivery.py','scripts/verify_delivery.cjs'})
 OTHER_FILES={'docs/PUBLISHING.md','docs/SYSTEM.md','docs/WORKLOG.md','third_party/README.md','third_party/Open-LLM-VTuber-MIT.txt'}

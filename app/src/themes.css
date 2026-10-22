@@ -141,3 +141,8 @@ html[data-theme=pixel] .timeline-card{border:2px solid var(--t-border);border-ra
 .no-flex-gap .timeline-fields>label+label{margin-left:7px}
 .no-flex-gap .continuity-fields>label+label{margin-left:8px}
 .no-flex-gap .settings-footer>button{margin-left:14px}
+
+/* 像素主题下 Yuki 的回答用完整版 Fusion Pixel（OFL），只有用到时才会加载；缺字自动退回普通字体。可在设置里关掉。 */
+@font-face{font-family:"YukiPixelReply";src:url("./fonts/fusion-pixel-12-zh_hans.woff2") format("woff2");font-display:swap}
+html[data-theme=pixel]:not(.plain-reply) #line,html[data-theme=pixel]:not(.plain-reply) #hint,html[data-theme=pixel]:not(.plain-reply) #composer{font-family:"YukiPixelReply","Microsoft YaHei UI",sans-serif!important;font-size:12px!important;line-height:20px!important;letter-spacing:0!important}
+html:not([data-theme=pixel]) #pixel-reply-row{display:none!important}

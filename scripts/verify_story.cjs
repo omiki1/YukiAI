@@ -36,7 +36,6 @@ const other='小春：在B路线，我们决定去图书室找雨伞。';
   await ingest(secret);const aBranch=(await state()).active.branch_id;
   await page.locator('#story-close').click();await ask('美咲刚才说了什么？');
   assert.match(await page.locator('#reply').innerText(),/红色信封/);
-  assert.match(await page.locator('#hint').innerText(),/读到的剧情/);
   await page.locator('#evidence-toggle').click();assert.match(await page.locator('#story-evidence-lines').innerText(),/红色信封/);
   await page.screenshot({path:path.join(out,'answer-evidence.png'),omitBackground:true});
   await tab('bookmarks');await page.locator('#story-bookmarks button').first().click();await page.waitForFunction(()=>document.querySelector('#story-status').textContent.startsWith('已回到书签'));

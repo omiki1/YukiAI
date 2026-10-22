@@ -35,7 +35,7 @@ const provider=http.createServer(async(request,response)=>{
   assert.equal(await page.evaluate(async()=>{const fonts=await document.fonts.load('12px YukiPixel');return fonts.length===1&&fonts[0].status==='loaded';}),true);
   assert.equal(await page.evaluate(()=>window.yuki.snapshot().mode),'paper');await page.locator('#quickstart').waitFor({state:'visible'});
   assert.equal(calls,0);assert.ok(await page.locator('#guide-discuss').isDisabled());await page.screenshot({path:path.join(out,'first-run-280.png'),omitBackground:true});
-  await page.locator('#quickstart summary').click();await page.locator('#guide-example').click();await page.waitForFunction(()=>document.querySelector('#guide-status').textContent.includes('三句原文已保存')&&!document.querySelector('#guide-example').disabled&&document.querySelector('#guide-reading').textContent.includes('3 句'));
+  await page.locator('#guide-example-toggle').click();await page.locator('#guide-example').click();await page.waitForFunction(()=>document.querySelector('#guide-status').textContent.includes('三句原文已保存')&&!document.querySelector('#guide-example').disabled&&document.querySelector('#guide-reading').textContent.includes('3 句'));
   assert.equal(calls,0);assert.match(await page.locator('#guide-reading').innerText(),/3 句/);await page.locator('#guide-close').click();
   // Paper silhouette must still reveal the controls on hover.
   await page.mouse.move(0,0);await page.waitForTimeout(650);await page.mouse.move(140,170);await page.waitForFunction(()=>document.querySelector('.window-bar').classList.contains('revealed'));

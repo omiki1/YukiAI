@@ -27,7 +27,7 @@ def open_window(url):
     for name in inherited:
         os.environ.pop(name,None)
     os.environ['QT_QPA_PLATFORM']=os.environ.get('YUKI_QT_PLATFORM','windows')
-    from PyQt5.QtCore import Qt,QUrl,QObject,QPoint,QAbstractNativeEventFilter,pyqtSlot,QCoreApplication
+    from PyQt5.QtCore import Qt,QUrl,QObject,QPoint,QAbstractNativeEventFilter,pyqtSlot,pyqtSignal,QCoreApplication
     from PyQt5.QtCore import QRectF
     from PyQt5.QtGui import QColor,QSurfaceFormat,QPainter,QFont,QLinearGradient,QPen,QPainterPath
     from PyQt5.QtWidgets import QApplication,QWidget,QVBoxLayout,QSizeGrip,QMenu
@@ -58,6 +58,13 @@ def open_window(url):
                 print(f'UI error at line {line}: {message[:300]}',flush=True)
 
     class Host(QObject):
+        gameReading=pyqtSignal(str)
+        @pyqtSlot(str)
+        def setGameReadingContext(self,value):reader.set_context(value)
+        @pyqtSlot()
+        def setupGameReading(self):reader.setup()
+        @pyqtSlot()
+        def readGameDialog(self):reader.wake(require_foreground=False)
         @pyqtSlot()
         def closeWindow(self):window.close()
         @pyqtSlot()
@@ -75,7 +82,7 @@ def open_window(url):
             self.state_file=state_file;self.press=None;self.moved=False
             self.setWindowFlags(Qt.FramelessWindowHint|Qt.WindowStaysOnTopHint|Qt.Tool)
             self.setAttribute(Qt.WA_TranslucentBackground);self.setFixedSize(self.W+2*self.PAD,self.H+2*self.PAD);self.hover=False;self.setMouseTracking(True)
-            self.setWindowTitle('Yuki 按钮');self.setToolTip('点击打开或收起 Yuki（Ctrl+Alt+Y）；可拖动，右键退出')
+            self.setWindowTitle('Yuki 按钮');self.setToolTip('点击打开或收起；Ctrl+Alt+Y 读取当前游戏台词；可拖动，右键退出')
             self.move(self.saved_position())
         def saved_position(self):
             try:
@@ -147,12 +154,16 @@ def open_window(url):
     def toggle():
         collapse() if window.isVisible() else expand()
 
+    def wake():
+        reading=reader.wake();expand()
+        if not reading:page.runJavaScript('window.dispatchEvent(new Event("yuki-wake"))')
+
     class HotkeyFilter(QAbstractNativeEventFilter):
         def nativeEventFilter(self,event_type,message):
             if event_type==b'windows_generic_MSG':
                 import ctypes.wintypes
                 msg=ctypes.wintypes.MSG.from_address(int(message))
-                if msg.message==0x0312 and msg.wParam==1:toggle();return True,0
+                if msg.message==0x0312 and msg.wParam==1:wake();return True,0
             return False,0
 
     app=QApplication(sys.argv[:1]);app.setApplicationName('Yuki 一起看剧情')
@@ -172,7 +183,9 @@ def open_window(url):
     page.settings().setAttribute(QWebEngineSettings.WebGLEnabled,True)
     page.settings().setAttribute(QWebEngineSettings.PlaybackRequiresUserGesture,False)
     view.setContextMenuPolicy(Qt.NoContextMenu)
-    channel=QWebChannel(page);host=Host(channel);channel.registerObject('windowHost',host);page.setWebChannel(channel)
+    from .yuki_game_reader import GameReader
+    reader=GameReader(window);app.aboutToQuit.connect(reader.close)
+    channel=QWebChannel(page);host=Host(channel);reader.event.connect(host.gameReading.emit);channel.registerObject('windowHost',host);page.setWebChannel(channel)
     layout=QVBoxLayout(window);layout.setContentsMargins(0,0,0,0);layout.addWidget(view)
     grip=QSizeGrip(window);grip.setFixedSize(15,15);grip.setStyleSheet('background:transparent')
     original_resize=window.resizeEvent
@@ -187,7 +200,7 @@ def open_window(url):
     hotkey=None
     if sys.platform=='win32':
         import ctypes
-        # Ctrl+Alt+Y toggles the window; failure (key already taken) just leaves the button.
+        # Wake reads the configured game once; the launcher still toggles visibility.
         if ctypes.windll.user32.RegisterHotKey(None,1,0x0002|0x0001|0x4000,0x59):
             hotkey=HotkeyFilter();app.installNativeEventFilter(hotkey)
     view.load(QUrl(url));launcher.show()

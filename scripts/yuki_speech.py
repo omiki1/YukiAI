@@ -8,6 +8,13 @@ import httpx
 class SpeechClient:
     def __init__(self, provider, config, transport=None):
         self.provider, self.config, self.transport = provider, dict(config), transport
+        # Reuse TLS/TCP connections across phrases; never retry billable synthesis.
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=15), follow_redirects=False,
+                                        transport=transport, limits=httpx.Limits(max_connections=2,
+                                        max_keepalive_connections=2, keepalive_expiry=60))
+
+    async def close(self):
+        await self.client.aclose()
 
     async def synthesize(self, text):
         config = self.config
@@ -28,18 +35,16 @@ class SpeechClient:
             url = config['base_url'].rstrip('/') + '/audio/speech'
             body = {'model': config['model'], 'input': text, 'voice': config['voice'] or 'alloy',
                     'response_format': 'wav', 'speed': config['speed']}
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=15), follow_redirects=False,
-                                     transport=self.transport) as client:
-            async with client.stream('POST', url, headers=headers, json=body) as response:
-                response.raise_for_status()
-                if response.status_code != 200:
-                    raise ValueError('语音服务未返回音频。')
-                chunks, size = [], 0
-                async for chunk in response.aiter_bytes():
-                    size += len(chunk)
-                    if size > 16 * 1024 * 1024:
-                        raise ValueError('语音文件过大。')
-                    chunks.append(chunk)
+        async with self.client.stream('POST', url, headers=headers, json=body) as response:
+            response.raise_for_status()
+            if response.status_code != 200:
+                raise ValueError('语音服务未返回音频。')
+            chunks, size = [], 0
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                if size > 16 * 1024 * 1024:
+                    raise ValueError('语音文件过大。')
+                chunks.append(chunk)
         audio = b''.join(chunks)
         if not audio.startswith(b'RIFF') or audio[8:12] != b'WAVE':
             raise ValueError('语音服务没有返回 WAV 音频。')

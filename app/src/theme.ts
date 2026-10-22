@@ -10,3 +10,7 @@ export function applyTheme(theme:string){const value=(THEMES as string[]).includ
  localStorage.setItem(KEY,value);const select=document.getElementById('theme-select') as HTMLSelectElement|null;if(select)select.value=value;return value;}
 applyTheme(localStorage.getItem(KEY)||DEFAULT_THEME);
 document.getElementById('theme-select')?.addEventListener('change',event=>applyTheme((event.target as HTMLSelectElement).value));
+const PIXEL_REPLY='yuki.pixelReply';
+function applyPixelReply(on:boolean){document.documentElement.classList.toggle('plain-reply',!on);localStorage.setItem(PIXEL_REPLY,on?'1':'0');const box=document.getElementById('pixel-reply') as HTMLInputElement|null;if(box)box.checked=on;}
+applyPixelReply(localStorage.getItem(PIXEL_REPLY)!=='0');
+document.getElementById('pixel-reply')?.addEventListener('change',event=>applyPixelReply((event.target as HTMLInputElement).checked));
